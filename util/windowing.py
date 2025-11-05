@@ -23,10 +23,13 @@ def find_random_window_size(sentence_len: int, max_l: int, min_l: int, decay: fl
 def make_random_window(sentence: str, max_l: int, min_l: int, decay: float, phonemes: Set[str]) -> Tuple[int, int]:
     """
     find a random window selected from a sentence
+    max and min are suggestions, the algorithm will ensure that the window starts and ends on a boundary,
+    even if it has to go over the limit
     :param sentence:
     :param max_l: max window size
     :param min_l: min window size
     :param decay: controls the geometric decay
+    :param phonemes: the phonemes set to use for boundary detection
     :return: the start and end position of the window
     """
     ws = find_random_window_size(len(sentence), max_l, min_l, decay)
