@@ -1,4 +1,8 @@
 {
+  "datasets": {
+    "russian": "iggy12345/ru-reviews-classification-ipa",
+    "polish": "iggy12345/allegro-reviews-ipa"
+  },
   "mappings": "data/mappings.json",
   "windows": {
     "min_size": 3,
