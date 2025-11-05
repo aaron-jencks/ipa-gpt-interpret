@@ -1,3 +1,8 @@
 {
-  "mappings": "data/mappings.json"
+  "mappings": "data/mappings.json",
+  "windows": {
+    "min_size": 3,
+    "max_size": 11,
+    "size_decay": 0.7
+  }
 }
