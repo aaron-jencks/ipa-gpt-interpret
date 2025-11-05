@@ -1,5 +1,5 @@
 import random
-from typing import Tuple
+from typing import Tuple, Set
 
 
 def find_random_window_size(sentence_len: int, max_l: int, min_l: int, decay: float) -> int:
@@ -20,7 +20,7 @@ def find_random_window_size(sentence_len: int, max_l: int, min_l: int, decay: fl
     return window_size
 
 
-def make_random_window(sentence: str, max_l: int, min_l: int, decay: float) -> Tuple[int, int]:
+def make_random_window(sentence: str, max_l: int, min_l: int, decay: float, phonemes: Set[str]) -> Tuple[int, int]:
     """
     find a random window selected from a sentence
     :param sentence:
@@ -31,6 +31,17 @@ def make_random_window(sentence: str, max_l: int, min_l: int, decay: float) -> T
     """
     ws = find_random_window_size(len(sentence), max_l, min_l, decay)
     max_start = len(sentence) - ws
+
     start = random.randint(0, max_start)
+    # start on a phoneme boundary
+    while start > 0 and sentence[start] in phonemes:
+        start -= 1
+    start += 1
+
     end = start + ws
+    # end on a phoneme boundary
+    while end < len(sentence) and sentence[end] in phonemes:
+        end += 1
+    end -= 1
+
     return start, end
