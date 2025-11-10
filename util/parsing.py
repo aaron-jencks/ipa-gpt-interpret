@@ -68,5 +68,5 @@ def get_features(s: str, mapping: Dict[str, List[int]]) -> List[int]:
     result = set()
     phonemes = identify_phonemes(s, set(mapping.keys()))
     for phone in phonemes:
-        merge_features(result, set(mapping[phone]))
+        result = merge_features(result, set(mapping[phone]))
     return list(result)
