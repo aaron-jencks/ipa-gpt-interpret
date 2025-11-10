@@ -3,6 +3,20 @@
     "russian": "iggy12345/ru-reviews-classification-ipa",
     "polish": "iggy12345/allegro-reviews-ipa"
   },
+  "tokenizers": {
+    "prefix": "data/tokenizers",
+    "name": {
+      "ipa": "bpe-rus-pol-ipa-number-preservation-08-20-2025",
+      "normal": "bpe-rus-pol-normal-number-preservation-08-20-2025"
+    }
+  },
+  "checkpoints": {
+    "prefix": "data/checkpoints",
+    "name": {
+      "ipa": "russian_polish_ipa_09_25_2025_12_5_50k",
+      "normal": "russian_polish_normal_09_25_2025_12_5_50k"
+    }
+  },
   "mappings": "data/mappings.json",
   "windows": {
     "min_size": 3,
