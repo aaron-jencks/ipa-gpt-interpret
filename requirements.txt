@@ -2,8 +2,11 @@
 cascade-config
 datasets
 matplotlib
+numpy
 openpyxl
 pandas
+scikit-learn
 torch
 tqdm
 transformers[torch]
+wandb

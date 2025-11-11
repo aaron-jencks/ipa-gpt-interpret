@@ -2,12 +2,13 @@ import os
 import pathlib
 import random
 from argparse import ArgumentParser
-from typing import List
+from typing import List, Tuple
 import logging
 
 import torch
 from datasets import Dataset
 from sklearn.metrics import precision_score, recall_score, f1_score
+from transformers import GPT2TokenizerFast
 
 from model import GPT, GPTConfig
 from tokenizer import eod_token
@@ -16,18 +17,38 @@ from tokenizer import eod_token
 logger = logging.getLogger(__name__)
 
 
-def create_downsampled_dataset(ds: Dataset, samples: int) -> Dataset:
-    if samples > len(ds):
-        logger.warning(f'sample size > population size: {samples} > {len(ds)}')
-    if samples == len(ds):
-        return ds
-    idxes = list(range(len(ds)))
-    sampled_idxs = random.sample(idxes, samples)
-    downsample = ds.select(sampled_idxs)
-    return downsample
+def get_tokenizer_paths(cfg: dict, model_type: str) -> Tuple[pathlib.Path, pathlib.Path]:
+    tokenizer_settings = cfg["tokenizers"]
+    tokenizer_name = tokenizer_settings['name'][model_type]
+    logger.info(f"Loading tokenizer '{tokenizer_name}' from '{tokenizer_settings['prefix']}'")
+    return (
+        pathlib.Path(tokenizer_settings["prefix"]) / f'{tokenizer_name}-vocab.json',
+        pathlib.Path(tokenizer_settings["prefix"]) / f'{tokenizer_name}-merges.txt',
+    )
 
 
-def load_pretrained_model(path: pathlib.Path, device: str = 'cuda') -> GPT:
+def load_tokenizer(vocab: pathlib.Path, merges: pathlib.Path) -> GPT2TokenizerFast:
+    tokenizer = GPT2TokenizerFast(
+        vocab_file=str(vocab),
+        merges_file=str(merges),
+        add_prefix_space=True,
+    )
+
+    # Set pad_token
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = 'right'
+
+    return tokenizer
+
+
+def get_checkpoint_path(cfg: dict, model_type: str) -> pathlib.Path:
+    checkpoint_settings = cfg['checkpoints']
+    return pathlib.Path(checkpoint_settings['prefix']) / f'{checkpoint_settings["name"][model_type]}.pt'
+
+
+def load_pretrained_model(cfg: dict, model_type: str, device: str = 'cuda') -> GPT:
+    path = get_checkpoint_path(cfg, model_type)
     checkpoint = torch.load(path, map_location=device)
     gptconf = GPTConfig(**checkpoint['model_args'])
     model = GPT(gptconf)
@@ -40,18 +61,6 @@ def load_pretrained_model(path: pathlib.Path, device: str = 'cuda') -> GPT:
                 if k in model.state_dict() and v.shape == model.state_dict()[k].shape}
     model.load_state_dict({**model.state_dict(), **filtered})
     return model.to(device)
-
-
-def load_random_from_pretrained_model(path: pathlib.Path, device: str = 'cuda') -> GPT:
-    checkpoint = torch.load(path, map_location=device)
-    gptconf = GPTConfig(**checkpoint['model_args'])
-    model = GPT(gptconf)
-    return model.to(device)
-
-
-def flatten_multi_features(examples, features: List[str], sequence_token: str = eod_token) -> List[str]:
-    sep = f'\n\n{sequence_token}\n\n'
-    return [sep.join([x or '' for x in items]) for items in zip(*[examples[f] for f in features])]
 
 
 def compute_metrics(eval_pred):
@@ -72,11 +81,8 @@ def compute_metrics(eval_pred):
 
 
 def setup_default_args(ap: ArgumentParser) -> ArgumentParser:
-    ap.add_argument('job_number', type=str, help='slurm job number')
     ap.add_argument('config', type=pathlib.Path, nargs='+', help='paths to config files')
     ap.add_argument('--default-config', type=pathlib.Path, default=pathlib.Path('config/default.json'),
-                    help='path to the default config file')
-    ap.add_argument('--language-database', type=pathlib.Path, default=pathlib.Path('config/language-database.json'),
                     help='path to the default config file')
     ap.add_argument('--cpus', type=int, default=os.cpu_count(), help='number of cpus')
     ap.add_argument('--debug', action='store_true', help='enable debug mode')

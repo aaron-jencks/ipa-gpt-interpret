@@ -1,7 +1,8 @@
 {
   "datasets": {
     "russian": "iggy12345/ru-reviews-classification-ipa",
-    "polish": "iggy12345/allegro-reviews-ipa"
+    "polish": "iggy12345/allegro-reviews-ipa",
+    "cache": "data/cache"
   },
   "tokenizers": {
     "prefix": "data/tokenizers",
