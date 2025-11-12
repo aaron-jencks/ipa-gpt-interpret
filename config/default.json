@@ -2,6 +2,7 @@
   "datasets": {
     "russian": "iggy12345/ru-reviews-classification-ipa",
     "polish": "iggy12345/allegro-reviews-ipa",
+    "probing": "iggy12345/rus-pol-edge-probing-phono-feats",
     "cache": "data/cache"
   },
   "tokenizers": {
