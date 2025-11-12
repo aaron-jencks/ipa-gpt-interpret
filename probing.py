@@ -88,7 +88,7 @@ class ProbedGPT(nn.Module):
         super().__init__()
         self.inner = inner
         self.probes = nn.ModuleList([
-            nn.Linear(self.inner.n_embd, phoneme_count) for _ in range(inner.n_layer)
+            nn.Linear(self.inner.config.n_embd, phoneme_count) for _ in range(inner.config.n_layer)
         ])
         self.freeze_inner_model()
 
