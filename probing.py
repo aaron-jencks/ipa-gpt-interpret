@@ -84,10 +84,9 @@ def load_and_preprocess(
 
 
 class ProbedGPT(nn.Module):
-    def __init__(self, inner: GPT, phoneme_count: int, device: str):
+    def __init__(self, inner: GPT, phoneme_count: int):
         super().__init__()
         self.inner = inner
-        self.device = device
         self.probes = nn.ModuleList([
             nn.Linear(self.inner.config.n_embd, phoneme_count) for _ in range(inner.config.n_layer)
         ])
