@@ -121,7 +121,7 @@ class ProbedGPT(nn.Module):
             x = block(x)  # (B, l, 768)
             probe = self.probes[bi]
             span_length = end_position - start_position
-            layer_outputs = [probe(x[0, start_position + i, :]) for i in range(span_length)]
+            layer_outputs = [probe(x[0, start_position + i, :]) for i in range(span_length + 1)]
             probe_outputs.append(torch.stack(layer_outputs))
 
         return probe_outputs
