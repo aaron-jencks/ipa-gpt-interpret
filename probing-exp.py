@@ -215,7 +215,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path, cpus: in
         errors = 0
         for idx in tqdm(dataset_order, desc=f'train epoch {epoch}'):
             row = train_ds[idx]
-            input_ids = torch.LongTensor(row['input_ids'], device=DEVICE)
+            input_ids = torch.tensor(row['input_ids'], device=DEVICE).long()
             start_position = row['start_positions']
             end_position = row['end_positions']
             if start_position < 0 or end_position < 0:
