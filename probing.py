@@ -119,7 +119,9 @@ class ProbedGPT(nn.Module):
             block_outputs = []
             for block in self.inner.transformer.h:
                 x = block(x)
-                block_outputs.append(x.detach().clone())
+                block_outputs.append(x)
+
+        block_outputs = [b.detach().clone() for b in block_outputs]
 
         probe_outputs = []  # (n_layers, span_size, phoneme_count)
 
