@@ -84,9 +84,10 @@ def load_and_preprocess(
 
 
 class ProbedGPT(nn.Module):
-    def __init__(self, inner: GPT, phoneme_count: int, ):
+    def __init__(self, inner: GPT, phoneme_count: int, device: str):
         super().__init__()
         self.inner = inner
+        self.device = device
         self.probes = nn.ModuleList([
             nn.Linear(self.inner.config.n_embd, phoneme_count) for _ in range(inner.config.n_layer)
         ])
@@ -106,7 +107,8 @@ class ProbedGPT(nn.Module):
         assert len(input_ids.shape) == 1, 'cannot handling batches for probing spans'
         l = input_ids.shape[0]
         assert l <= self.inner.config.block_size, f"Cannot forward sequence of length {l}, block size is only {self.inner.config.block_size}"
-        pos = torch.arange(0, l, dtype=torch.long, device=self.device)  # shape (l)
+        device = next(self.parameters()).device
+        pos = torch.arange(0, l, dtype=torch.long, device=device)  # shape (l)
 
         input_ids = input_ids.unsqueeze(0)  # add the batch dimension
 
