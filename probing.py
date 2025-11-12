@@ -111,7 +111,7 @@ class ProbedGPT(nn.Module):
 
         input_ids = input_ids.unsqueeze(0)  # add the batch dimension
 
-        with torch.inference_mode():
+        with torch.no_grad():
             tok_emb = self.inner.transformer.wte(input_ids)  # token embeddings of shape (B, l, n_embd)
             pos_emb = self.inner.transformer.wpe(pos)  # position embeddings of shape (t, n_embd)
             x = self.inner.transformer.drop(tok_emb + pos_emb)
