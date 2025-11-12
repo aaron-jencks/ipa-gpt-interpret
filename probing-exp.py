@@ -201,7 +201,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path, cpus: in
     phoneme_count = len(phoneme_mappings['features'])
     logger.info('loading model')
     base_model = utils.load_pretrained_model(cfg, model_type, device=DEVICE)
-    model = ProbedGPT(base_model, phoneme_count)
+    model = ProbedGPT(base_model, phoneme_count).to(DEVICE)
     logger.info('generating optimizer')
     hyperparameters = cfg['hyperparameters']
     criterion = nn.BCEWithLogitsLoss(reduction='none')  # For multi-hot encoded vector
