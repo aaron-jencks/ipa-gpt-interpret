@@ -31,7 +31,7 @@ def label_to_hot_vector_w_mask(features: List[int], phoneme_count: int) -> Tuple
         if f > 0:
             binary_vector[f-1] = 1
         else:
-            mask[f-1] = 0
+            mask[abs(f)-1] = 0
     return binary_vector.float(), mask.float()
 
 
