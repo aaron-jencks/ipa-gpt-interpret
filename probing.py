@@ -1,6 +1,7 @@
 import logging
 import os
 from typing import Tuple, List
+from typing_extensions import Self
 
 from datasets import load_dataset, Dataset
 import torch
@@ -15,11 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 def load_and_preprocess(
-        cfg: dict, lang: str, split: str,
+        cfg: dict, split: str,
         tokenizer: GPT2TokenizerFast, model_type: str,
         cpus: int = os.cpu_count()
 ) -> Dataset:
-    dataset_name = cfg['datasets'][lang]
+    dataset_name = cfg['datasets']['probing']
 
     logger.info(f'Loading dataset "{dataset_name}"')
 
@@ -84,6 +85,17 @@ class ProbedGPT(nn.Module):
         self.probes = nn.ModuleList([
             nn.Linear(self.inner.n_embd, phoneme_count) for _ in range(inner.n_layer)
         ])
+        self.freeze_inner_model()
+
+    def train(self, mode: bool = True) -> Self:
+        super().train(mode)
+        self.inner.eval()
+        return self
+
+    def freeze_inner_model(self):
+        self.inner.eval()
+        for param in self.inner.parameters():
+            param.requires_grad = False
 
     def forward(self, input_ids: torch.tensor, start_position: int, end_position: int):
         assert len(input_ids.shape) == 1, 'cannot handling batches for probing spans'
@@ -104,6 +116,6 @@ class ProbedGPT(nn.Module):
             probe = self.probes[bi]
             span_length = end_position - start_position
             layer_outputs = [probe(x[0, start_position + i, :]) for i in range(span_length)]
-            probe_outputs.append(layer_outputs)
+            probe_outputs.append(torch.stack(layer_outputs))
 
         return probe_outputs

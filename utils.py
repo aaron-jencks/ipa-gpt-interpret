@@ -11,7 +11,6 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 from transformers import GPT2TokenizerFast
 
 from model import GPT, GPTConfig
-from tokenizer import eod_token
 
 
 logger = logging.getLogger(__name__)
