@@ -42,11 +42,16 @@ def do_eval_epoch(model: ProbedGPT, eval_ds: Dataset, phoneme_count: int) -> Tup
     criterion = nn.BCEWithLogitsLoss(reduction='none')
     layer_metrics = []
     epoch_loss = 0
+    errors = 0
     for idx in tqdm(dataset_order, desc=f'eval'):
         row = eval_ds[idx]
         input_ids = torch.LongTensor(row['input_ids'], device=DEVICE)
         start_position = row['start_positions']
         end_position = row['end_positions']
+        if start_position < 0 or end_position < 0:
+            logger.warning(f'skipping row with no answer: {idx}')
+            errors += 1
+            continue
         labels = set(row['features'][0])
         label_vector, label_mask = label_to_hot_vector_w_mask(row['features'][0], phoneme_count)
 
@@ -106,7 +111,7 @@ def do_eval_epoch(model: ProbedGPT, eval_ds: Dataset, phoneme_count: int) -> Tup
             layer_metric[fi]['recall'] = rec
             layer_metric[fi]['f1'] = 2 * prec * rec / max((prec + rec), 1)
 
-    return epoch_loss / len(eval_ds), layer_metrics
+    return epoch_loss / len(eval_ds) - errors, layer_metrics
 
 
 def compute_macro_metrics(layer_metrics: List[dict], layer: int) -> Tuple[float, float, float, float]:
@@ -207,11 +212,16 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path, cpus: in
     for epoch in range(hyperparameters['epochs']):
         random.shuffle(dataset_order)
         epoch_loss = 0.0
+        errors = 0
         for idx in tqdm(dataset_order, desc=f'train epoch {epoch}'):
             row = train_ds[idx]
             input_ids = torch.LongTensor(row['input_ids'], device=DEVICE)
             start_position = row['start_positions']
             end_position = row['end_positions']
+            if start_position < 0 or end_position < 0:
+                logger.warning(f'skipping row with no answer: {idx}')
+                errors += 1
+                continue
             labels = row['features'][0]
             label_vector, label_mask = label_to_hot_vector_w_mask(labels, phoneme_count)
 
@@ -228,7 +238,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path, cpus: in
             loss.backward()
             optimizer.step()
 
-        epoch_loss /= len(train_ds)
+        epoch_loss /= len(train_ds) - errors
         eval_loss, eval_metrics = do_eval_epoch(model, eval_ds, phoneme_count)
 
         log_entry = {

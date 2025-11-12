@@ -58,6 +58,11 @@ def load_and_preprocess(
 
         for i, offset in enumerate(offset_mapping):
             answer = answers[i]
+            if len(answer['start']) == 0:
+                logger.warning(f'row {i} does not have an answer')
+                start_positions.append(-1)
+                end_positions.append(-1)
+                continue
             start_char = answer['start'][0]
             end_char = answer['end'][0]
 
