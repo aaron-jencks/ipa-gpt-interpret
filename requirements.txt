@@ -1,5 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 cascade-config
+evaluate
 datasets
 matplotlib
 numpy
