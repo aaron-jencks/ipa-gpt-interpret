@@ -35,6 +35,10 @@ def label_to_hot_vector_w_mask(features: List[int], phoneme_count: int) -> Tuple
     return binary_vector.float(), mask.float()
 
 
+def prepare_input_vector(input_ids: List[int], start_position: int, stop_position: int, device: str) -> torch.Tensor:
+    return torch.tensor(input_ids[:stop_position + 1], device=device).long()
+
+
 def do_eval_epoch(model: ProbedGPT, eval_ds: Dataset, phoneme_count: int) -> Tuple[float, List[dict]]:
     model.eval()
     dataset_order = list(range(len(eval_ds)))
@@ -45,13 +49,13 @@ def do_eval_epoch(model: ProbedGPT, eval_ds: Dataset, phoneme_count: int) -> Tup
     errors = 0
     for idx in tqdm(dataset_order, desc=f'eval'):
         row = eval_ds[idx]
-        input_ids = torch.LongTensor(row['input_ids'], device=DEVICE)
         start_position = row['start_positions']
         end_position = row['end_positions']
         if start_position < 0 or end_position < 0:
             logger.warning(f'skipping row with no answer: {idx}')
             errors += 1
             continue
+        input_ids = prepare_input_vector(row['input_ids'], start_position, end_position, device=DEVICE)
         labels = set(row['features'][0])
         label_vector, label_mask = label_to_hot_vector_w_mask(row['features'][0], phoneme_count)
 
@@ -202,7 +206,6 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path, cpus: in
     logger.info('loading model')
     base_model = utils.load_pretrained_model(cfg, model_type, device=DEVICE)
     model = ProbedGPT(base_model, phoneme_count).to(DEVICE)
-    model.compile()
     logger.info('generating optimizer')
     hyperparameters = cfg['hyperparameters']
     criterion = nn.BCEWithLogitsLoss(reduction='none')  # For multi-hot encoded vector
@@ -216,13 +219,13 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path, cpus: in
         errors = 0
         for idx in tqdm(dataset_order, desc=f'train epoch {epoch}'):
             row = train_ds[idx]
-            input_ids = torch.tensor(row['input_ids'], device=DEVICE).long()
             start_position = row['start_positions']
             end_position = row['end_positions']
             if start_position < 0 or end_position < 0:
                 logger.warning(f'skipping row with no answer: {idx}')
                 errors += 1
                 continue
+            input_ids = prepare_input_vector(row['input_ids'], start_position, end_position, device=DEVICE)
             labels = row['features'][0]
             label_vector, label_mask = label_to_hot_vector_w_mask(labels, phoneme_count)
 
