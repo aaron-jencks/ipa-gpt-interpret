@@ -30,11 +30,7 @@ def extract_hidden_states(
     
     logger.info(f"Extracting hidden states from {len(dataset)} samples with batch_size={batch_size}")
     
-    # Process in batches
-    num_batches = (len(dataset) + batch_size - 1) // batch_size
-    
-    for batch_idx in tqdm(range(num_batches), desc="Extracting hidden states"):
-        batch_start = batch_idx * batch_size
+    for batch_start in range(0, len(dataset), batch_size):
         batch_end = min(batch_start + batch_size, len(dataset))
         
         # Gather batch data
@@ -60,7 +56,6 @@ def extract_hidden_states(
         
         with torch.no_grad():
             layer_hidden_states = model(input_ids_tensor)
-        
 
         for i in range(len(batch_input_ids)):
             sample_hidden = [layer_hs[i] for layer_hs in layer_hidden_states]
