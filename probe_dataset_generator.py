@@ -3,7 +3,8 @@ import json
 import logging
 import os
 import pathlib
-from typing import List, Tuple
+from typing import Dict
+import numpy as np
 import torch
 from tqdm import tqdm
 from datasets import Dataset
@@ -16,21 +17,30 @@ logger = logging.getLogger(__name__)
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def extract_hidden_states(
+def extract_hidden_states_per_token(
     model: ProbedGPT, 
-    dataset: Dataset, 
-    batch_size: int = 32
-) -> Tuple[List[torch.Tensor], List[int], List[int], List[List[int]]]:
+    dataset: Dataset,
+    output_dir: pathlib.Path,
+    model_type: str,
+    batch_size: int = 128
+) -> dict:
     model.eval()
     
-    all_hidden_states = []
-    start_positions = []
-    end_positions = []
-    features = []
+
+    token_states_dir = output_dir / f'token_hidden_states_{model_type}'
+    token_states_dir.mkdir(parents=True, exist_ok=True)
     
-    logger.info(f"Extracting hidden states from {len(dataset)} samples with batch_size={batch_size}")
+    metadata = {
+        'samples': [],
+        'n_layers': None,
+        'model_type': model_type
+    }
     
-    for batch_start in range(0, len(dataset), batch_size):
+    logger.info(f"Extracting per-token hidden states from {len(dataset)} samples")
+    
+    sample_id = 0
+    
+    for batch_start in tqdm(range(0, len(dataset), batch_size), desc="Processing batches"):
         batch_end = min(batch_start + batch_size, len(dataset))
         
         # Gather batch data
@@ -38,6 +48,7 @@ def extract_hidden_states(
         batch_starts = []
         batch_ends = []
         batch_features = []
+        batch_valid_indices = []
         
         for idx in range(batch_start, batch_end):
             row = dataset[idx]
@@ -48,6 +59,7 @@ def extract_hidden_states(
             batch_starts.append(row['start_positions'])
             batch_ends.append(row['end_positions'])
             batch_features.append(row['features'][0])
+            batch_valid_indices.append(idx)
         
         if len(batch_input_ids) == 0:
             continue
@@ -56,147 +68,120 @@ def extract_hidden_states(
         
         with torch.no_grad():
             layer_hidden_states = model(input_ids_tensor)
+        
 
+        if metadata['n_layers'] is None:
+            metadata['n_layers'] = len(layer_hidden_states)
+        
+        # Process each sample in the batch
         for i in range(len(batch_input_ids)):
-            sample_hidden = [layer_hs[i] for layer_hs in layer_hidden_states]
-            # (n_layers, seq_len, n_embd)
-            sample_hidden = torch.stack(sample_hidden)
+            start_pos = batch_starts[i]
+            end_pos = batch_ends[i]
+            span_length = end_pos - start_pos + 1
             
-            all_hidden_states.append(sample_hidden.cpu())
-            start_positions.append(batch_starts[i])
-            end_positions.append(batch_ends[i])
-            features.append(batch_features[i])
-    
-    logger.info(f"Extracted hidden states for {len(all_hidden_states)} samples")
-    return all_hidden_states, start_positions, end_positions, features
+            sample_metadata = {
+                'sample_id': sample_id,
+                'original_dataset_idx': batch_valid_indices[i],
+                'start_position': start_pos,
+                'end_position': end_pos,
+                'span_length': span_length,
+                'features': batch_features[i],
+                'layer_files': []
+            }
+            
 
-
-def create_probe_dataset_dict(
-    hidden_states: List[torch.Tensor],
-    start_positions: List[int],
-    end_positions: List[int],
-    features: List[List[int]],
-    phoneme_count: int
-) -> dict:
-    
-    pooled_hidden_states_list = []
-    labels_list = []
-    masks_list = []
-    
-    logger.info(f"Creating probe dataset from {len(hidden_states)} samples")
-    
-    for i in tqdm(range(len(hidden_states)), desc="Creating probe dataset"):
-        # (n_layers, seq_len, n_embd)
-        hs = hidden_states[i]
-        start = start_positions[i]
-        end = end_positions[i]
+            for layer_idx, layer_hs in enumerate(layer_hidden_states):
+                span_tokens = layer_hs[i, start_pos:end_pos+1, :]
+                filename = f'{sample_id}_{layer_idx}_{model_type}.npy'
+                filepath = token_states_dir / filename
+                np.save(filepath, span_tokens.cpu().numpy())
+                
+                sample_metadata['layer_files'].append(str(filepath))
+            metadata['samples'].append(sample_metadata)
+            sample_id += 1
         
-        span_hidden = hs[:, start:end+1, :]
-        pooled = span_hidden.mean(dim=1)
-        
-        label_vector = torch.zeros(phoneme_count)
-        mask = torch.ones(phoneme_count)
-        for f in features[i]:
-            if f > 0:
-                label_vector[f-1] = 1
-            else:
-                mask[abs(f)-1] = 0
-        
-        pooled_hidden_states_list.append(pooled)
-        labels_list.append(label_vector)
-        masks_list.append(mask)
+        if DEVICE == 'cuda':
+            torch.cuda.empty_cache()
     
+    logger.info(f"Extracted hidden states for {len(metadata['samples'])} samples")
+    logger.info(f"Created {len(metadata['samples']) * metadata['n_layers']} layer files")
 
-    pooled_hidden_states = torch.stack(pooled_hidden_states_list)
-    labels = torch.stack(labels_list)
-    masks = torch.stack(masks_list)
+    metadata_path = output_dir / f'metadata_{model_type}.json'
+    with open(metadata_path, 'w', encoding='utf-8') as f:
+        json.dump(metadata, f, indent=2)
+    logger.info(f"Saved metadata to {metadata_path}")
     
-    logger.info(f"Created Probe dataset with {len(pooled_hidden_states)} samples")
-    
-    return {
-        'pooled_hidden_states': pooled_hidden_states,
-        'labels': labels,
-        'masks': masks,
-        'phoneme_count': phoneme_count,
-        'n_layers': pooled_hidden_states.shape[1]
-    }
+    return metadata
 
 
-def save_probe_dataset(dataset_dict: dict, save_path: pathlib.Path):
-    logger.info(f"Saving probe dataset to {save_path}")
-    torch.save(dataset_dict, save_path)
-    logger.info(f"Dataset saved successfully")
-
-
-def main(cfg: dict, model_type: str, output_dir: pathlib.Path, batch_size: int = 32, cpus: int = os.cpu_count()):
-    # All the loading 
+def main(cfg: dict, model_type: str, output_dir: pathlib.Path, batch_size: int =128, cpus: int = os.cpu_count()):
     vocab, merges = utils.get_tokenizer_paths(cfg, model_type)
     tokenizer = utils.load_tokenizer(vocab, merges)
+    
     logger.info('Loading training dataset')
     train_ds = load_and_preprocess(cfg, 'train', tokenizer, model_type, cpus)
+    
     logger.info('Loading evaluation dataset')
     eval_ds = load_and_preprocess(cfg, 'validation', tokenizer, model_type, cpus)
+    
     logger.info('Loading test dataset')
     test_ds = load_and_preprocess(cfg, 'test', tokenizer, model_type, cpus)
+    
     logger.info('Loading phoneme mapping file')
     mapping_path = pathlib.Path(cfg['mappings'])
     with open(mapping_path, 'r', encoding='utf-8') as fp:
         phoneme_mappings = json.load(fp)
     phoneme_count = len(phoneme_mappings['features'])
+    
     logger.info('Loading model')
     base_model = utils.load_pretrained_model(cfg, model_type, device=DEVICE)
     model = ProbedGPT(base_model, phoneme_count).to(DEVICE)
     
-
-    # Extract hidden states
-    train_hidden, train_starts, train_ends, train_features = extract_hidden_states(
-        model, train_ds, batch_size=batch_size
+    logger.info("Extracting Training Set")
+    train_metadata = extract_hidden_states_per_token(
+        model, train_ds, output_dir, model_type, batch_size=batch_size
     )
-    eval_hidden, eval_starts, eval_ends, eval_features = extract_hidden_states(
-        model, eval_ds, batch_size=batch_size
-    )
-    test_hidden, test_starts, test_ends, test_features = extract_hidden_states(
-        model, test_ds, batch_size=batch_size
-    )  
     
-    train_probe_dict = create_probe_dataset_dict(
-        train_hidden, train_starts, train_ends, train_features, phoneme_count
+    logger.info("Extracting Validation Set")
+    eval_metadata = extract_hidden_states_per_token(
+        model, eval_ds, output_dir, model_type, batch_size=batch_size
     )
-    eval_probe_dict = create_probe_dataset_dict(
-        eval_hidden, eval_starts, eval_ends, eval_features, phoneme_count
-    )
-    test_probe_dict = create_probe_dataset_dict(
-        test_hidden, test_starts, test_ends, test_features, phoneme_count
-    )
-
-    output_dir.mkdir(parents=True, exist_ok=True)
     
-    save_probe_dataset(train_probe_dict, output_dir / f'train_probe_dataset_{model_type}.pt')
-    save_probe_dataset(eval_probe_dict, output_dir / f'eval_probe_dataset_{model_type}.pt')
-    save_probe_dataset(test_probe_dict, output_dir / f'test_probe_dataset_{model_type}.pt')
+    logger.info("Extracting Test Set")
+    test_metadata = extract_hidden_states_per_token(
+        model, test_ds, output_dir, model_type, batch_size=batch_size
+    )
     
-    logger.info(f'Train samples: {len(train_probe_dict["pooled_hidden_states"])}')
-    logger.info(f'Eval samples: {len(eval_probe_dict["pooled_hidden_states"])}')
-    logger.info(f'Test samples: {len(test_probe_dict["pooled_hidden_states"])}')
-    logger.info(f'Hidden state shape: {train_probe_dict["pooled_hidden_states"].shape}')
-    logger.info(f'Labels shape: {train_probe_dict["labels"].shape}')
-
+    # Print summary statistics
+    logger.info("EXTRACTION COMPLETE")
+    logger.info(f"Train samples: {len(train_metadata['samples'])}")
+    logger.info(f"Eval samples: {len(eval_metadata['samples'])}")
+    logger.info(f"Test samples: {len(test_metadata['samples'])}")
+    logger.info(f"Layers per sample: {train_metadata['n_layers']}")
+    logger.info(f"Total files created: {(len(train_metadata['samples']) + len(eval_metadata['samples']) + len(test_metadata['samples'])) * train_metadata['n_layers']}")
+    logger.info(f"Output directory: {output_dir}")
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description='Extract hidden states and make probe datasets')
+    ap = argparse.ArgumentParser(description='Extract per-token hidden states and save to numpy files')
     ap = utils.setup_default_args(ap)
     ap.add_argument('--model-type', type=str, nargs='+', default=['normal', 'ipa'], 
                     help='The model type(s) to process')
-    ap.add_argument('--output-dir', type=pathlib.Path, default=pathlib.Path('data/probe_datasets'),
-                    help='Directory to save probe datasets')
-    ap.add_argument('--batch-size', type=int, default=32,
+    ap.add_argument('--output-dir', type=pathlib.Path, default=pathlib.Path('data/token_hidden_states'),
+                    help='Directory to save per-token hidden states')
+    ap.add_argument('--batch-size', type=int, default=128,
                     help='Batch size for hidden state extraction')
     args = ap.parse_args()
     
     cfg = config.load_config(args.config, args.default_config)
     
     logger.info(f'Running on {DEVICE}')
+    logger.info(f'Output directory: {args.output_dir}')
+    logger.info(f'Batch size: {args.batch_size}')
+    logger.info(f'Model types: {args.model_type}')
     
     for mt in args.model_type:
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Processing model type: {mt}")
+        logger.info(f"{'='*60}\n")
         main(cfg, mt, args.output_dir, args.batch_size, args.cpus)
