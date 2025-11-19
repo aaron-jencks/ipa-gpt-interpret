@@ -84,17 +84,14 @@ def load_and_preprocess(
     return ds_pre.map(preprocess, batched=True, num_proc=cpus)
 
 
-class ProbedGPT(nn.Module):
+class HiddenStateGPT(nn.Module):
     def __init__(self, inner: GPT, phoneme_count: int):
         super().__init__()
         self.inner = inner
-        self.probes = nn.ModuleList([
-            nn.Linear(self.inner.config.n_embd, phoneme_count) for _ in range(inner.config.n_layer)
-        ])
         self.freeze_inner_model()
 
     def train(self, mode: bool = True) -> Self:
-        super().train(mode)
+        logger.warning('attempted to put frozen model in training mode, forcing eval mode')
         self.inner.eval()
         return self
 
@@ -102,7 +99,7 @@ class ProbedGPT(nn.Module):
         self.inner.eval()
         for param in self.inner.parameters():
             param.requires_grad = False
-    
+
     def forward(self, input_ids: torch.tensor):
         b, l = input_ids.size()
         device = next(self.parameters()).device
@@ -114,7 +111,7 @@ class ProbedGPT(nn.Module):
         with torch.inference_mode(), torch.cuda.amp.autocast(dtype=torch.bfloat16):
             tok_emb = self.inner.transformer.wte(input_ids)  # token embeddings of shape (B, l, n_embd)
             pos_emb = self.inner.transformer.wpe(pos)  # position embeddings of shape (t, n_embd)
-            x = self.inner.transformer.drop(tok_emb + pos_emb)
+            x = tok_emb + pos_emb
 
             block_outputs = []
             for block in self.inner.transformer.h:
