@@ -10,7 +10,7 @@ from tqdm import tqdm
 from datasets import Dataset
 import config
 import utils
-from probing_new import load_and_preprocess, ProbedGPT
+from probing_new import load_and_preprocess, HiddenStateGPT
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -135,7 +135,7 @@ def main(cfg: dict, model_type: str, output_dir: pathlib.Path, batch_size: int =
     
     logger.info('Loading model')
     base_model = utils.load_pretrained_model(cfg, model_type, device=DEVICE)
-    model = ProbedGPT(base_model, phoneme_count).to(DEVICE)
+    model = HiddenStateGPT(base_model, phoneme_count).to(DEVICE)
     
     logger.info("Extracting Training Set")
     train_metadata = extract_hidden_states_per_token(
