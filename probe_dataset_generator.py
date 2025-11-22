@@ -101,7 +101,11 @@ def extract_hidden_states_per_token(
     return metadata
 
 
-def main(cfg: dict, model_type: str, output_dir: pathlib.Path, batch_size: int = 128, cpus: int = os.cpu_count()):
+def main(
+        cfg: dict, model_type: str, output_dir: pathlib.Path,
+        batch_size: int = 128, accumulation_size: int = 10_000,
+        cpus: int = os.cpu_count()
+):
     vocab, merges = utils.get_tokenizer_paths(cfg, model_type)
     tokenizer = utils.load_tokenizer(vocab, merges)
     
@@ -128,17 +132,20 @@ def main(cfg: dict, model_type: str, output_dir: pathlib.Path, batch_size: int =
     
     logger.info("Extracting Training Set")
     train_metadata = extract_hidden_states_per_token(
-        model, train_ds, output_dir, 'train', model_type, batch_size=batch_size
+        model, train_ds, output_dir, 'train', model_type, batch_size=batch_size,
+        accumulation_size=accumulation_size
     )
     
     logger.info("Extracting Validation Set")
     eval_metadata = extract_hidden_states_per_token(
-        model, eval_ds, output_dir, 'validation', model_type, batch_size=batch_size
+        model, eval_ds, output_dir, 'validation', model_type, batch_size=batch_size,
+        accumulation_size=accumulation_size
     )
     
     logger.info("Extracting Test Set")
     test_metadata = extract_hidden_states_per_token(
-        model, test_ds, output_dir, 'test', model_type, batch_size=batch_size
+        model, test_ds, output_dir, 'test', model_type, batch_size=batch_size,
+        accumulation_size=accumulation_size
     )
     
     # Print summary statistics
@@ -160,6 +167,7 @@ if __name__ == "__main__":
                     help='Directory to save per-token hidden states')
     ap.add_argument('--batch-size', type=int, default=128,
                     help='Batch size for hidden state extraction')
+    ap.add_argument('--accumulation-size', type=int, default=10_000, help='The number of samples to store before saving')
     args = ap.parse_args()
     
     cfg = config.load_config(args.config, args.default_config)
