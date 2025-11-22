@@ -25,7 +25,7 @@ def load_and_preprocess(
     logger.info(f'Loading dataset "{dataset_name}"')
 
     # ds = load_dataset(dataset_name, split=split, cache_dir=cfg['datasets']['cache'])
-    ds = load_dataset(dataset_name, split=split)
+    ds = load_dataset(dataset_name, split=split, num_process=cpus)
     feat = 'text'
     if model_type == 'ipa':
         feat += '-phoneme'
