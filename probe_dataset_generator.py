@@ -123,7 +123,8 @@ def main(cfg: dict, model_type: str, output_dir: pathlib.Path, batch_size: int =
     logger.info('Loading model')
     base_model = utils.load_pretrained_model(cfg, model_type, device=DEVICE)
     model = HiddenStateGPT(base_model, phoneme_count)
-    model = model.compile().to(DEVICE)  # compile the model for speed
+    model.compile()  # compile the model for speed
+    model = model.to(DEVICE)
     
     logger.info("Extracting Training Set")
     train_metadata = extract_hidden_states_per_token(
