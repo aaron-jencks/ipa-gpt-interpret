@@ -181,4 +181,4 @@ if __name__ == "__main__":
         logger.info(f"\n{'='*60}")
         logger.info(f"Processing model type: {mt}")
         logger.info(f"{'='*60}\n")
-        main(cfg, mt, args.output_dir, args.batch_size, args.cpus)
+        main(cfg, mt, args.output_dir, args.batch_size, args.accumulation_size, args.cpus)
