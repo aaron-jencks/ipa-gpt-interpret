@@ -92,7 +92,7 @@ def extract_hidden_states_per_token(
     if len(samples) > 0:
         metadata['filenames'] += save_sample_data(model_type, token_states_dir, samples)
     
-    logger.info(f"Extracted hidden states for {len(metadata['samples'])} samples")
+    logger.info(f"Extracted hidden states for {len(metadata['filenames'])} samples")
     metadata_filename = token_states_dir / 'metadata.json'
     with open(metadata_filename, 'w+') as f:
         json.dump(metadata, f, indent=2)
