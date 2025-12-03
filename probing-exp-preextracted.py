@@ -4,7 +4,7 @@ import logging
 import os
 import pathlib
 import random
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,8 +24,6 @@ logger = logging.getLogger(__name__)
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
-# python /users/PAS3184/chiang248/cse5525/ipa-gpt-interpret/probing-exp-preextracted.py config/default.json --model-type ipa normal --num-layers 12 --hidden-dim 768 --output-log probing_results_preextracted
-
 class LinearProbe(nn.Module):
     def __init__(self, input_dim: int, output_dim: int):
         super().__init__()
@@ -43,7 +41,7 @@ def load_hidden_states(dataset_idx: int, layer_idx: int, model_type: str, split:
     if not file_path.exists():
         raise FileNotFoundError(f"Hidden state file not found: {file_path}")
     
-    # Load npz file
+    # Load npz file and extract the array (stored as 'arr_0')
     with np.load(file_path) as data:
         hidden_states = data['arr_0']
     
@@ -74,11 +72,12 @@ def label_to_hot_vector_w_mask(features: List[int], phoneme_count: int) -> Tuple
 def extract_token_representation(hidden_states: np.ndarray, 
                                  start_position: int, 
                                  end_position: int,
-                                 use_last_token: bool = True) -> torch.Tensor:
+                                 average_span: bool = False) -> torch.Tensor:
     hidden_states_tensor = torch.from_numpy(hidden_states).float().to(DEVICE)
     
-    if use_last_token:
-        token_repr = hidden_states_tensor[-1, :]
+    if average_span:
+        span_tokens = hidden_states_tensor[start_position:end_position+1, :]
+        token_repr = span_tokens.mean(dim=0)
     else:
         token_repr = hidden_states_tensor[end_position, :]
     
@@ -107,9 +106,74 @@ def compute_macro_metrics(layer_metrics: List[dict], layer_idx: int) -> Tuple[fl
     )
 
 
+def save_checkpoint(checkpoint_dir: pathlib.Path, model_type: str, epoch: int,
+                   probes: nn.ModuleList, optimizer: torch.optim.Optimizer,
+                   train_loss: float, eval_loss: float, eval_metrics: List[dict],
+                   num_layers: int):
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    
+    checkpoint = {
+        'epoch': epoch,
+        'model_type': model_type,
+        'num_layers': num_layers,
+        'probe_state_dicts': [probe.state_dict() for probe in probes],
+        'optimizer_state_dict': optimizer.state_dict(),
+        'train_loss': train_loss,
+        'eval_loss': eval_loss,
+        'eval_metrics': eval_metrics,
+    }
+    
+    checkpoint_path = checkpoint_dir / f"{model_type}_epoch{epoch}.pt"
+    torch.save(checkpoint, checkpoint_path)
+    logger.info(f"Saved checkpoint to {checkpoint_path}")
+    
+    # Also save a "latest" checkpoint for easy resuming
+    latest_path = checkpoint_dir / f"{model_type}_latest.pt"
+    torch.save(checkpoint, latest_path)
+    logger.info(f"Saved latest checkpoint to {latest_path}")
+
+
+def load_checkpoint(checkpoint_path: pathlib.Path, probes: nn.ModuleList, 
+                   optimizer: torch.optim.Optimizer) -> Tuple[int, float, float, List[dict]]:
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+    
+    logger.info(f"Loading checkpoint from {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=DEVICE)
+    
+    for probe, state_dict in zip(probes, checkpoint['probe_state_dicts']):
+        probe.load_state_dict(state_dict)
+    
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
+    epoch = checkpoint['epoch']
+    train_loss = checkpoint['train_loss']
+    eval_loss = checkpoint['eval_loss']
+    eval_metrics = checkpoint['eval_metrics']
+    
+    logger.info(f"Resumed from epoch {epoch}, train_loss: {train_loss:.4f}, eval_loss: {eval_loss:.4f}")
+    
+    return epoch, train_loss, eval_loss, eval_metrics
+
+
+def find_latest_checkpoint(checkpoint_dir: pathlib.Path, model_type: str) -> Optional[pathlib.Path]:
+    latest_path = checkpoint_dir / f"{model_type}_latest.pt"
+    
+    if latest_path.exists():
+        return latest_path
+    
+    # Fallback
+    checkpoints = list(checkpoint_dir.glob(f"{model_type}_epoch*.pt"))
+    if checkpoints:
+        checkpoints.sort(key=lambda p: int(p.stem.split('epoch')[1]))
+        return checkpoints[-1]
+    
+    return None
+
+
 def do_eval_epoch(probes: nn.ModuleList, eval_ds: Dataset, phoneme_count: int, 
                  model_type: str, split: str, hidden_states_dir: pathlib.Path,
-                 num_layers: int) -> Tuple[float, List[dict]]:
+                 num_layers: int, average_span: bool = False) -> Tuple[float, List[dict]]:
     for probe in probes:
         probe.eval()
     
@@ -140,7 +204,7 @@ def do_eval_epoch(probes: nn.ModuleList, eval_ds: Dataset, phoneme_count: int,
                 try:
                     hidden_states = load_hidden_states(idx, layer_idx, model_type, split, hidden_states_dir)
                     
-                    token_repr = extract_token_representation(hidden_states, start_position, end_position)
+                    token_repr = extract_token_representation(hidden_states, start_position, end_position, average_span)
                     
                     probe_output = probes[layer_idx](token_repr.unsqueeze(0))
                     pooled_probe = probe_output.squeeze(0)
@@ -275,12 +339,15 @@ def log_layer_feature_metrics(layer_metrics: List[dict], phoneme_mapping: dict, 
 
 
 def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path, 
-                num_layers: int, hidden_dim: int, cpus: int = os.cpu_count()) -> nn.ModuleList:
+                num_layers: int, hidden_dim: int, checkpoint_dir: pathlib.Path,
+                resume: bool, average_span: bool = False, cpus: int = os.cpu_count()) -> nn.ModuleList:
+    
     wrun = wandb.init(
         entity='aaronjencks-the-ohio-state-university',
-        project='ipa-probing-linear-probes-training',
+        project='ipa-probing-linear-classifiers',
         name=f'{model_type}_preextracted',
-        config=cfg['hyperparameters']
+        config=cfg['hyperparameters'],
+        resume='allow' if resume else False
     )
 
     logger.info('loading tokenizer')
@@ -311,10 +378,27 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
     hidden_states_dir = pathlib.Path('/fs/scratch/PAS2836/ipa_gpt/github/ipa-gpt-interpret/data/token_hidden_states')
     logger.info(f'Using hidden states directory: {hidden_states_dir}')
     
+    start_epoch = 0
+    if resume:
+        checkpoint_path = find_latest_checkpoint(checkpoint_dir, model_type)
+        if checkpoint_path:
+            try:
+                start_epoch, _, _, _ = load_checkpoint(checkpoint_path, probes, optimizer)
+                start_epoch += 1
+                logger.info(f"Resuming training from epoch {start_epoch}")
+            except Exception as e:
+                logger.error(f"Failed to load checkpoint: {e}")
+                logger.info("Starting training from scratch")
+                start_epoch = 0
+        else:
+            logger.info("No checkpoint found, starting training from scratch")
+    else:
+        logger.info("Starting training from scratch (resume=False)")
+    
     logger.info('starting training')
     dataset_order = list(range(len(train_ds)))
     
-    for epoch in range(hyperparameters['epochs']):
+    for epoch in range(start_epoch, hyperparameters['epochs']):
         random.shuffle(dataset_order)
         epoch_loss = 0.0
         errors = 0
@@ -342,7 +426,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
                 try:
                     hidden_states = load_hidden_states(idx, layer_idx, model_type, 'train', hidden_states_dir)
                     
-                    token_repr = extract_token_representation(hidden_states, start_position, end_position)
+                    token_repr = extract_token_representation(hidden_states, start_position, end_position, average_span)
                     
                     probe_output = probes[layer_idx](token_repr.unsqueeze(0))
                     pooled_probe = probe_output.squeeze(0)
@@ -368,8 +452,12 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
         
         eval_loss, eval_metrics = do_eval_epoch(
             probes, eval_ds, phoneme_count, model_type, 'validation', 
-            hidden_states_dir, num_layers
+            hidden_states_dir, num_layers, average_span
         )
+        
+        # Save checkpoint after each epoch
+        save_checkpoint(checkpoint_dir, model_type, epoch, probes, optimizer,
+                       epoch_loss, eval_loss, eval_metrics, num_layers)
         
         log_entry = {
             'train/loss': epoch_loss,
@@ -389,7 +477,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
     
     test_loss, test_metrics = do_eval_epoch(
         probes, test_ds, phoneme_count, model_type, 'test', 
-        hidden_states_dir, num_layers
+        hidden_states_dir, num_layers, average_span
     )
     
     log_entry = {'test/loss': test_loss}
@@ -421,11 +509,21 @@ if __name__ == "__main__":
                    help='Hidden dimension size')
     ap.add_argument('--output-log', type=str, default='probing_results_preextracted', 
                    help='The file to store the final probing accuracies in')
+    ap.add_argument('--checkpoint-dir', type=str, default='checkpoints',
+                   help='Directory to save/load checkpoints')
+    ap.add_argument('--resume', action='store_true',
+                   help='Resume from latest checkpoint if available')
+    ap.add_argument('--average-span', action='store_true',
+                   help='Average all tokens in the span instead of using last token')
     args = ap.parse_args()
     cfg = config.load_config(args.config, args.default_config)
 
     logger.info(f'training probes on {DEVICE}')
+    
+    checkpoint_dir = pathlib.Path(args.checkpoint_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     for mt in args.model_type:
         output_path = pathlib.Path('data') / f'{args.output_log}_{mt}.tsv'
-        probes = do_train_run(cfg, mt, output_path, args.num_layers, args.hidden_dim, args.cpus)
+        probes = do_train_run(cfg, mt, output_path, args.num_layers, args.hidden_dim, 
+                            checkpoint_dir, args.resume, args.average_span, args.cpus)
