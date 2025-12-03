@@ -51,7 +51,6 @@ def load_hidden_states(dataset_idx: int, layer_idx: int, model_type: str, split:
 
 
 def load_metadata(model_type: str, split: str, hidden_states_dir: pathlib.Path) -> Dict:
-    """Load metadata for the specified model type and split"""
     model_dir = hidden_states_dir / f"token_hidden_states_{model_type}_{split}"
     metadata_path = model_dir / "metadata.json"
     
