@@ -415,11 +415,13 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
     
     logger.info('starting training')
     dataset_order = list(range(len(train_ds)))
+    one_epoch = False
     
     for epoch in range(start_epoch, hyperparameters['epochs']):
         random.shuffle(dataset_order)
         epoch_loss = 0.0
         errors = 0
+        one_epoch = True
         
         for probe in probes:
             probe.train()
@@ -505,24 +507,25 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
         p = probes[layer]
         logger.info(f'layer {layer}: {p.linear.weight.detach().cpu().numpy()}')
     
-    test_loss, test_metrics = do_eval_epoch(
-        probes, eval_ds, phoneme_count, model_type, 'validation',
-        hidden_states_dir, num_layers, average_span
-    )
+    # test_loss, test_metrics = do_eval_epoch(
+    #     probes, eval_ds, phoneme_count, model_type, 'validation',
+    #     hidden_states_dir, num_layers, average_span
+    # )
+    #
+    # log_entry = {'test/loss': test_loss}
+    # for layer in range(num_layers):
+    #     l_acc, l_prec, l_rec, l_f1 = compute_macro_metrics(test_metrics, layer)
+    #     log_entry[f'test/accuracy/layer_{layer:02d}'] = l_acc
+    #     log_entry[f'test/precision/layer_{layer:02d}'] = l_prec
+    #     log_entry[f'test/recall/layer_{layer:02d}'] = l_rec
+    #     log_entry[f'test/f1/layer_{layer:02d}'] = l_f1
+    #
+    # test_hm = compute_layer_feature_heatmap(test_metrics, phoneme_mappings)
+    # wandb.log(log_entry)
+    # plt.close(test_hm)
 
-    log_entry = {'test/loss': test_loss}
-    for layer in range(num_layers):
-        l_acc, l_prec, l_rec, l_f1 = compute_macro_metrics(test_metrics, layer)
-        log_entry[f'test/accuracy/layer_{layer:02d}'] = l_acc
-        log_entry[f'test/precision/layer_{layer:02d}'] = l_prec
-        log_entry[f'test/recall/layer_{layer:02d}'] = l_rec
-        log_entry[f'test/f1/layer_{layer:02d}'] = l_f1
-
-    test_hm = compute_layer_feature_heatmap(test_metrics, phoneme_mappings)
-    wandb.log(log_entry)
-    plt.close(test_hm)
-    
-    log_layer_feature_metrics(test_metrics, phoneme_mappings, output_file)
+    if one_epoch:
+        log_layer_feature_metrics(eval_metrics, phoneme_mappings, output_file)
     
     wrun.finish()
     return probes
