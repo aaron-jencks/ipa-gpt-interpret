@@ -33,19 +33,22 @@ class LinearProbe(nn.Module):
         return self.linear(x)
 
 
-def load_hidden_states(dataset_idx: int, layer_idx: int, model_type: str, split: str, 
+def load_hidden_states(dataset_idx: int, model_type: str, split: str,
                        hidden_states_dir: pathlib.Path) -> np.ndarray:
+    """
+    Loads the pre-extracted span-only hidden states for a given row.
+
+    New file format: {idx}_{model_type}.npy
+    Shape: (num_layers, span_len, hidden_dim)
+    """
     model_dir = hidden_states_dir / f"token_hidden_states_{model_type}_{split}"
-    file_path = model_dir / f"{dataset_idx}_{layer_idx}_{model_type}.npz"
-    
+    file_path = model_dir / f"{dataset_idx}_{model_type}.npy"
+
     if not file_path.exists():
         raise FileNotFoundError(f"Hidden state file not found: {file_path}")
-    
-    # Load npz file and extract the array (stored as 'arr_0')
-    with np.load(file_path) as data:
-        hidden_states = data['arr_0']
-    
-    return hidden_states
+
+    # Load the whole thing (small because span_len <= 20)
+    return np.load(file_path, mmap_mode="r")
 
 
 def load_metadata(model_type: str, split: str, hidden_states_dir: pathlib.Path) -> Dict:
@@ -69,19 +72,21 @@ def label_to_hot_vector_w_mask(features: List[int], phoneme_count: int) -> Tuple
     return binary_vector.float(), mask.float()
 
 
-def extract_token_representation(hidden_states: np.ndarray, 
-                                 start_position: int, 
-                                 end_position: int,
+def extract_token_representation(hidden_states: np.ndarray,
+                                 layer_idx: int,
                                  average_span: bool = False) -> torch.Tensor:
-    hidden_states_tensor = torch.from_numpy(hidden_states).float().to(DEVICE)
-    
+    """
+    hidden_states: (num_layers, span_len, hidden_dim)
+    layer_idx: which layer we are probing
+    """
+    layer_hs = hidden_states[layer_idx]              # (span_len, hidden_dim)
+
     if average_span:
-        span_tokens = hidden_states_tensor[start_position:end_position+1, :]
-        token_repr = span_tokens.mean(dim=0)
+        vec = layer_hs.mean(axis=0)                  # (hidden_dim,)
     else:
-        token_repr = hidden_states_tensor[end_position, :]
-    
-    return token_repr
+        vec = layer_hs[-1]                           # last token (hidden_dim,)
+
+    return torch.from_numpy(vec).float().to(DEVICE)
 
 
 def compute_macro_metrics(layer_metrics: List[dict], layer_idx: int) -> Tuple[float, float, float, float]:
@@ -199,12 +204,12 @@ def do_eval_epoch(probes: nn.ModuleList, eval_ds: Dataset, phoneme_count: int,
             label_vector, label_mask = label_to_hot_vector_w_mask(row['features'][0], phoneme_count)
             
             layer_losses = []
+
+            hidden_states = load_hidden_states(idx, model_type, split, hidden_states_dir)
             
             for layer_idx in range(num_layers):
                 try:
-                    hidden_states = load_hidden_states(idx, layer_idx, model_type, split, hidden_states_dir)
-                    
-                    token_repr = extract_token_representation(hidden_states, start_position, end_position, average_span)
+                    token_repr = extract_token_representation(hidden_states, layer_idx, average_span)
                     
                     probe_output = probes[layer_idx](token_repr.unsqueeze(0))
                     pooled_probe = probe_output.squeeze(0)
@@ -425,12 +430,12 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
             
             optimizer.zero_grad()
             layer_losses = []
+
+            hidden_states = load_hidden_states(idx, model_type, 'train', hidden_states_dir)
             
             for layer_idx in range(num_layers):
                 try:
-                    hidden_states = load_hidden_states(idx, layer_idx, model_type, 'train', hidden_states_dir)
-                    
-                    token_repr = extract_token_representation(hidden_states, start_position, end_position, average_span)
+                    token_repr = extract_token_representation(hidden_states, layer_idx, average_span)
                     
                     probe_output = probes[layer_idx](token_repr.unsqueeze(0))
                     pooled_probe = probe_output.squeeze(0)
