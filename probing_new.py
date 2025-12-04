@@ -78,7 +78,7 @@ def load_and_preprocess(
             while idx < len(inputs['input_ids']) and offset[idx][0] < start_char:
                 idx += 1
             if idx == len(inputs['input_ids']):
-                logger.warning(f'row {i} start character is last character')
+                logger.warning(f'row {i} start character is last character {idx}')
                 start_positions.append(-1)
                 end_positions.append(-1)
                 continue
