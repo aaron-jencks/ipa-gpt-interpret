@@ -498,6 +498,12 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
         log_entry['eval/f1_heatmap'] = wandb.Image(eval_hm)
         wandb.log(log_entry, step=epoch)
         plt.close(eval_hm)
+
+    logger.info('Finished training')
+    logger.info('Probe Weights:')
+    for layer in range(num_layers):
+        p = probes[layer]
+        logger.info(f'layer {layer}: {p.linear.weight.detach().cpu().numpy()}')
     
     test_loss, test_metrics = do_eval_epoch(
         probes, eval_ds, phoneme_count, model_type, 'validation',
