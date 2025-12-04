@@ -485,7 +485,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
         plt.close(eval_hm)
     
     test_loss, test_metrics = do_eval_epoch(
-        probes, test_ds, phoneme_count, model_type, 'test', 
+        probes, test_ds, phoneme_count, model_type, 'validation',
         hidden_states_dir, num_layers, average_span
     )
     
