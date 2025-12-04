@@ -206,6 +206,10 @@ def do_eval_epoch(probes: nn.ModuleList, eval_ds: Dataset, phoneme_count: int,
             layer_losses = []
 
             hidden_states = load_hidden_states(idx, model_type, split, hidden_states_dir)
+            if len(hidden_states[0]) == 0:
+                logger.warning(f'skipping row with no span: {idx}')
+                errors += 1
+                continue
             
             for layer_idx in range(num_layers):
                 try:
@@ -432,6 +436,10 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
             layer_losses = []
 
             hidden_states = load_hidden_states(idx, model_type, 'train', hidden_states_dir)
+            if len(hidden_states[0]) == 0:
+                logger.warning(f'skipping row with no span: {idx}')
+                errors += 1
+                continue
             
             for layer_idx in range(num_layers):
                 try:
