@@ -342,10 +342,14 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
                 num_layers: int, hidden_dim: int, checkpoint_dir: pathlib.Path,
                 resume: bool, average_span: bool = False, cpus: int = os.cpu_count()) -> nn.ModuleList:
     
+    extraction_method = 'avgspan' if average_span else 'lasttoken'
+    project_name = f'ipa-final-probing-linear-classifier-{model_type}-{extraction_method}'
+    run_name = f'{model_type}_{extraction_method}_preextracted'
+    
     wrun = wandb.init(
         entity='aaronjencks-the-ohio-state-university',
-        project='ipa-probing-linear-classifiers',
-        name=f'{model_type}_preextracted',
+        project=project_name,
+        name=run_name,
         config=cfg['hyperparameters'],
         resume='allow' if resume else False
     )
