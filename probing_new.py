@@ -67,14 +67,28 @@ def load_and_preprocess(
             start_char = answer['start'][0]
             end_char = answer['end'][0]
 
+            if start_char > end_char:
+                raise ValueError(f'row {i}: start char {start_char} > end char {end_char}')
+
             # Otherwise it's the start and end token positions
             idx = 0
-            while idx <= len(inputs['input_ids']) and offset[idx][0] <= start_char:
+            while idx < len(inputs['input_ids']) and offset[idx][0] < start_char:
                 idx += 1
-            start_positions.append(idx - 1)
+            if idx == len(inputs['input_ids']):
+                logger.warning(f'row {i} does not have an answer')
+                start_positions.append(-1)
+                end_positions.append(-1)
+                continue
+            start_idx = idx
             idx = len(inputs['input_ids']) - 1
-            while idx >= 0 and offset[idx][1] > end_char:
+            while idx >= 0 and offset[idx][1] >= end_char:
                 idx -= 1
+            if idx < 0:
+                logger.warning(f'row {i} does not have an answer')
+                start_positions.append(-1)
+                end_positions.append(-1)
+                continue
+            start_positions.append(start_idx)
             end_positions.append(idx + 1)
 
         inputs["start_positions"] = start_positions
