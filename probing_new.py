@@ -73,7 +73,7 @@ def load_and_preprocess(
                 idx += 1
             start_positions.append(idx - 1)
             idx = len(inputs['input_ids']) - 1
-            while idx >= 0 and offset[idx][1] >= end_char:
+            while idx >= 0 and offset[idx][1] > end_char:
                 idx -= 1
             end_positions.append(idx + 1)
 
