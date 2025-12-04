@@ -474,7 +474,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
         
         # Save checkpoint after each epoch
         save_checkpoint(checkpoint_dir, model_type, epoch, probes, optimizer,
-                       epoch_loss, eval_loss, eval_metrics, num_layers)
+                        epoch_loss, eval_loss, eval_metrics, num_layers)
         
         log_entry = {
             'train/loss': epoch_loss,
@@ -493,7 +493,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
         plt.close(eval_hm)
     
     test_loss, test_metrics = do_eval_epoch(
-        probes, test_ds, phoneme_count, model_type, 'validation',
+        probes, eval_ds, phoneme_count, model_type, 'validation',
         hidden_states_dir, num_layers, average_span
     )
     
