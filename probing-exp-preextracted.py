@@ -509,7 +509,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
         probes, eval_ds, phoneme_count, model_type, 'validation',
         hidden_states_dir, num_layers, average_span
     )
-    
+
     log_entry = {'test/loss': test_loss}
     for layer in range(num_layers):
         l_acc, l_prec, l_rec, l_f1 = compute_macro_metrics(test_metrics, layer)
@@ -517,7 +517,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
         log_entry[f'test/precision/layer_{layer:02d}'] = l_prec
         log_entry[f'test/recall/layer_{layer:02d}'] = l_rec
         log_entry[f'test/f1/layer_{layer:02d}'] = l_f1
-    
+
     test_hm = compute_layer_feature_heatmap(test_metrics, phoneme_mappings)
     wandb.log(log_entry)
     plt.close(test_hm)
