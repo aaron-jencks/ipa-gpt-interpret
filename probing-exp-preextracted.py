@@ -436,9 +436,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
             
             labels = row['features'][0]
             label_vector, label_mask = label_to_hot_vector_w_mask(labels, phoneme_count)
-            
-            for optim in optimizers:
-                optim.zero_grad()
+
             layer_losses = []
 
             hidden_states = load_hidden_states(idx, model_type, 'train', hidden_states_dir)
@@ -449,6 +447,8 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
             
             for layer_idx in range(num_layers):
                 try:
+                    optimizers[layer_idx].zero_grad()
+
                     token_repr = extract_token_representation(hidden_states, layer_idx, average_span)
                     
                     probe_output = probes[layer_idx](token_repr.unsqueeze(0))
@@ -456,7 +456,11 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
                     
                     loss_vec = criterion(pooled_probe, label_vector)
                     masked_loss = (loss_vec * label_mask).sum() / label_mask.sum().clamp_min(1.0)
-                    layer_losses.append(masked_loss)
+
+                    masked_loss.backward()
+                    optimizers[layer_idx].step()
+
+                    layer_losses.append(masked_loss.detach())
                 except FileNotFoundError as e:
                     logger.error(f"Could not load hidden states for idx={idx}, layer={layer_idx}: {e}")
                     errors += 1
@@ -464,10 +468,6 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
             
             if not layer_losses:
                 continue
-
-            for li, layer_loss in enumerate(layer_losses):
-                layer_loss.backward()
-                optimizers[li].step()
 
             loss = torch.stack(layer_losses).mean()
             epoch_loss += loss.item()
