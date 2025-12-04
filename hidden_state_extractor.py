@@ -118,8 +118,8 @@ def main(
     logger.info('Loading evaluation dataset')
     eval_ds = load_and_preprocess(cfg, 'validation', tokenizer, model_type, cpus)
     
-    logger.info('Loading test dataset')
-    test_ds = load_and_preprocess(cfg, 'test', tokenizer, model_type, cpus)
+    # logger.info('Loading test dataset')
+    # test_ds = load_and_preprocess(cfg, 'test', tokenizer, model_type, cpus)
     
     logger.info('Loading phoneme mapping file')
     mapping_path = pathlib.Path(cfg['mappings'])
