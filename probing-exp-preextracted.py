@@ -309,7 +309,7 @@ def compute_layer_feature_heatmap(layer_metrics: List[dict], phoneme_mapping: di
             if metric in lm[feat]:
                 metric_mat[li, feat-1] = lm[feat][metric]
 
-    im = ax.imshow(metric_mat, aspect='auto', cmap='viridis')
+    im = ax.imshow(metric_mat, aspect='auto', cmap='viridis', vmin=0, vmax=1)
     plt.colorbar(im, ax=ax, label=metric.upper())
 
     feature_names = sorted(phoneme_mapping['features'].keys(), key=lambda k: phoneme_mapping['features'][k])
