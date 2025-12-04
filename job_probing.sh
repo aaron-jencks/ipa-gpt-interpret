@@ -20,6 +20,14 @@ echo "Python: $(which python) ($(python --version))"
 echo "Conda env: $CONDA_DEFAULT_ENV"
 echo "Conda prefix: $CONDA_PREFIX"
 
+# setup paths
+scratch_prefix="/fs/scratch/PAS2836/ipa_gpt"
+storage_prefix="/fs/ess/PAS2836/ipa_gpt"
+checkpoints_prefix="$storage_prefix/checkpoints"
+scratch_datasets_prefix="$scratch_prefix/tokens"
+scratch_github_prefix="$scratch_prefix/github"
+scratch_hf_cache_prefix="$scratch_prefix/cache"
+
 model_type="normal"
 config_file="config/default.json"
 for arg in "$@"; do
