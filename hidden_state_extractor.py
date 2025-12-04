@@ -83,7 +83,7 @@ def extract_hidden_states_per_token(
             start, stop = batch_slices[i]
             samples.append({
                 'dataset_idx': batch_valid_indices[i],
-                'layer_states': [layer_hs[i, start:stop, :].cpu().numpy().astype(np.float16) for layer_hs in layer_hidden_states]
+                'layer_states': [layer_hs[i, start:stop+1, :].cpu().numpy().astype(np.float16) for layer_hs in layer_hidden_states]
             })
             if len(samples) == (accumulation_size // batch_size):
                 metadata['filenames'] += save_sample_data(model_type, token_states_dir, samples)
