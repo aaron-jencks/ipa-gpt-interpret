@@ -69,7 +69,7 @@ def extract_hidden_states_per_token(
             if row['start_positions'] < 0 or row['end_positions'] < 0:
                 continue
             if row['start_positions'] >= row['end_positions']:
-                raise ValueError(f'start_positions >= end_positions {idx}')
+                raise ValueError(f'start_positions >= end_positions {idx} ({row["start_positions"]}, {row["end_positions"]})')
             batch_input_ids.append(row['input_ids'])
             batch_valid_indices.append(idx)
             batch_slices.append((row['start_positions'], row['end_positions']))
