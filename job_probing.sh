@@ -50,6 +50,7 @@ python probing-exp-preextracted.py \
   --model-type "$model_type" \
   --num-layers 12 \
   --hidden-dim 768 \
+  --cpus 8 \
   --output-log "probing_results_preextracted_$model_type"
 
 echo "===== [$(date)] JOB COMPLETED ====="
