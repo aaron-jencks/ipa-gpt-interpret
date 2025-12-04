@@ -366,7 +366,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
     logger.info('loading datasets')
     train_ds = load_and_preprocess(cfg, 'train', tokenizer, model_type, cpus)
     eval_ds = load_and_preprocess(cfg, 'validation', tokenizer, model_type, cpus)
-    test_ds = load_and_preprocess(cfg, 'test', tokenizer, model_type, cpus)
+    # test_ds = load_and_preprocess(cfg, 'test', tokenizer, model_type, cpus)
     
     logger.info('loading phoneme mapping file')
     mapping_path = pathlib.Path(cfg['mappings'])
