@@ -24,10 +24,10 @@ def save_sample_data(model_type: str, output_dir: pathlib.Path, samples: List[di
     filenames = []
     for batch_samples in tqdm(samples, desc="Saving samples"):
         dataset_idx = batch_samples["dataset_idx"]
-        for layer_idx, layer_states in enumerate(batch_samples["layer_states"]):
-            filename = output_dir / f"{dataset_idx}_{layer_idx}_{model_type}.npz"
-            np.savez(filename, layer_states)
-            filenames.append(str(filename))
+        layer_states = np.stack(batch_samples["layer_states"], axis=0)
+        filename = output_dir / f"{dataset_idx}_{model_type}.npy"
+        np.save(filename, layer_states)
+        filenames.append(str(filename))
     return filenames
 
 
