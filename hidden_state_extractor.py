@@ -145,19 +145,19 @@ def main(
         accumulation_size=accumulation_size
     )
     
-    logger.info("Extracting Test Set")
-    test_metadata = extract_hidden_states_per_token(
-        model, test_ds, output_dir, 'test', model_type, batch_size=batch_size,
-        accumulation_size=accumulation_size
-    )
+    # logger.info("Extracting Test Set")
+    # test_metadata = extract_hidden_states_per_token(
+    #     model, test_ds, output_dir, 'test', model_type, batch_size=batch_size,
+    #     accumulation_size=accumulation_size
+    # )
     
     # Print summary statistics
     logger.info("EXTRACTION COMPLETE")
     logger.info(f"Train samples: {len(train_metadata['filenames'])}")
     logger.info(f"Eval samples: {len(eval_metadata['filenames'])}")
-    logger.info(f"Test samples: {len(test_metadata['filenames'])}")
+    # logger.info(f"Test samples: {len(test_metadata['filenames'])}")
     logger.info(f"Layers per sample: {train_metadata['n_layers']}")
-    logger.info(f"Total files created: {(len(train_metadata['filenames']) + len(eval_metadata['filenames']) + len(test_metadata['filenames'])) * train_metadata['n_layers']}")
+    logger.info(f"Total files created: {(len(train_metadata['filenames']) + len(eval_metadata['filenames']))}")
     logger.info(f"Output directory: {output_dir}")
 
 
