@@ -75,24 +75,20 @@ def load_and_preprocess(
 
             # Otherwise it's the start and end token positions
             idx = 0
-            while idx < len(inputs['input_ids']) and offset[idx][0] < start_char:
+            while idx < len(inputs['input_ids'][i]) and offset[idx][0] < start_char and offset[idx][1] < start_char:
                 idx += 1
-            if idx == len(inputs['input_ids']):
+            if idx == len(inputs['input_ids'][i]):
                 logger.warning(f'row {i} start character is last character {idx}')
                 start_positions.append(-1)
                 end_positions.append(-1)
                 continue
             start_idx = idx
-            idx = len(inputs['input_ids']) - 1
-            while idx >= 0 and offset[idx][1] >= end_char:
-                idx -= 1
-            if idx < 0:
-                logger.warning(f'row {i} end character is first character')
-                start_positions.append(-1)
-                end_positions.append(-1)
-                continue
+            while idx < len(inputs['input_ids'][i]) and offset[idx][1] < end_char:
+                idx += 1
+            if idx == len(inputs['input_ids'][i]):
+                logger.warning(f'row {i} end character is last character')
             start_positions.append(start_idx)
-            end_positions.append(idx + 1)
+            end_positions.append(idx)
 
         inputs["start_positions"] = start_positions
         inputs["end_positions"] = end_positions
