@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=probing_experiment
-#SBATCH --account=PAS3150
+#SBATCH --account=PAS2836
 #SBATCH --output=/fs/ess/PAS2836/ipa_gpt/jobs/logs/%x-%j.out
 #SBATCH --error=/fs/ess/PAS2836/ipa_gpt/jobs/logs/errors/%x-%j.err
 #SBATCH --nodes=1
