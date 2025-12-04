@@ -70,8 +70,7 @@ def extract_hidden_states_per_token(
                 continue
             batch_input_ids.append(row['input_ids'])
             batch_valid_indices.append(idx)
-            # TODO this will only work with a single answer
-            batch_slices.append((row['start_positions'][0], row['end_positions'][0]))
+            batch_slices.append((row['start_positions'], row['end_positions']))
         
         if len(batch_input_ids) == 0:
             continue
