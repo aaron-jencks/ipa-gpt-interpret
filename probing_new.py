@@ -68,7 +68,10 @@ def load_and_preprocess(
             end_char = answer['end'][0]
 
             if start_char > end_char:
-                raise ValueError(f'row {i}: start char {start_char} > end char {end_char}')
+                logger.warning(f'row {i}: start char {start_char} > end char {end_char}')
+                start_positions.append(-1)
+                end_positions.append(-1)
+                continue
 
             # Otherwise it's the start and end token positions
             idx = 0
