@@ -78,7 +78,7 @@ def load_and_preprocess(
             while idx < len(inputs['input_ids']) and offset[idx][0] < start_char:
                 idx += 1
             if idx == len(inputs['input_ids']):
-                logger.warning(f'row {i} does not have an answer')
+                logger.warning(f'row {i} start character is last character')
                 start_positions.append(-1)
                 end_positions.append(-1)
                 continue
@@ -87,7 +87,7 @@ def load_and_preprocess(
             while idx >= 0 and offset[idx][1] >= end_char:
                 idx -= 1
             if idx < 0:
-                logger.warning(f'row {i} does not have an answer')
+                logger.warning(f'row {i} end character is first character')
                 start_positions.append(-1)
                 end_positions.append(-1)
                 continue
