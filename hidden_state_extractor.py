@@ -62,6 +62,7 @@ def extract_hidden_states_per_token(
         # Gather batch data
         batch_input_ids = []
         batch_valid_indices = []
+        batch_slices = []
         
         for idx in range(batch_start, batch_end):
             row = dataset[idx]
@@ -69,6 +70,8 @@ def extract_hidden_states_per_token(
                 continue
             batch_input_ids.append(row['input_ids'])
             batch_valid_indices.append(idx)
+            # TODO this will only work with a single answer
+            batch_slices.append((row['start_positions'][0], row['end_positions'][0]))
         
         if len(batch_input_ids) == 0:
             continue
@@ -78,9 +81,10 @@ def extract_hidden_states_per_token(
         
         # Process each sample in the batch
         for i in range(len(batch_input_ids)):
+            start, stop = batch_slices[i]
             samples.append({
                 'dataset_idx': batch_valid_indices[i],
-                'layer_states': [layer_hs[i, :, :].cpu().numpy() for layer_hs in layer_hidden_states]
+                'layer_states': [layer_hs[i, start:stop, :].cpu().numpy() for layer_hs in layer_hidden_states]
             })
             if len(samples) == (accumulation_size // batch_size):
                 metadata['filenames'] += save_sample_data(model_type, token_states_dir, samples)
