@@ -1,6 +1,6 @@
 {
   "hyperparameters": {
     "epochs": 5,
-    "learning_rate": 0.000001
+    "learning_rate": 0.00001
   }
 }
