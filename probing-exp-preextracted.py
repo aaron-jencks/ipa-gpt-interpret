@@ -112,7 +112,7 @@ def compute_macro_metrics(layer_metrics: List[dict], layer_idx: int) -> Tuple[fl
 
 
 def save_checkpoint(checkpoint_dir: pathlib.Path, model_type: str, epoch: int,
-                   probes: nn.ModuleList, optimizer: torch.optim.Optimizer,
+                   probes: nn.ModuleList, optimizers: List[torch.optim.Optimizer],
                    train_loss: float, eval_loss: float, eval_metrics: List[dict],
                    num_layers: int):
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -122,7 +122,7 @@ def save_checkpoint(checkpoint_dir: pathlib.Path, model_type: str, epoch: int,
         'model_type': model_type,
         'num_layers': num_layers,
         'probe_state_dicts': [probe.state_dict() for probe in probes],
-        'optimizer_state_dict': optimizer.state_dict(),
+        'optimizer_state_dicts': [opt.state_dict() for opt in optimizers],
         'train_loss': train_loss,
         'eval_loss': eval_loss,
         'eval_metrics': eval_metrics,
@@ -139,7 +139,7 @@ def save_checkpoint(checkpoint_dir: pathlib.Path, model_type: str, epoch: int,
 
 
 def load_checkpoint(checkpoint_path: pathlib.Path, probes: nn.ModuleList, 
-                   optimizer: torch.optim.Optimizer) -> Tuple[int, float, float, List[dict]]:
+                   optimizers: List[torch.optim.Optimizer]) -> Tuple[int, float, float, List[dict]]:
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
     
@@ -148,8 +148,9 @@ def load_checkpoint(checkpoint_path: pathlib.Path, probes: nn.ModuleList,
     
     for probe, state_dict in zip(probes, checkpoint['probe_state_dicts']):
         probe.load_state_dict(state_dict)
-    
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+    for optimizer, state_dict in zip(optimizers, checkpoint['optimizer_state_dicts']):
+        optimizer.load_state_dict(state_dict)
     
     epoch = checkpoint['epoch']
     train_loss = checkpoint['train_loss']
@@ -386,7 +387,11 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
     
     hyperparameters = cfg['hyperparameters']
     criterion = nn.BCEWithLogitsLoss(reduction='none')
-    optimizer = torch.optim.AdamW(probes.parameters(), lr=hyperparameters['learning_rate'])
+    # We need one for EACH probe
+    optimizers = [
+        torch.optim.AdamW(probes[i].parameters(), lr=hyperparameters['learning_rate'])
+        for i in range(num_layers)
+    ]
     
     hidden_states_dir = pathlib.Path('/fs/scratch/PAS2836/ipa_gpt/github/ipa-gpt-interpret/data/token_hidden_states')
     logger.info(f'Using hidden states directory: {hidden_states_dir}')
@@ -396,7 +401,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
         checkpoint_path = find_latest_checkpoint(checkpoint_dir, model_type)
         if checkpoint_path:
             try:
-                start_epoch, _, _, _ = load_checkpoint(checkpoint_path, probes, optimizer)
+                start_epoch, _, _, _ = load_checkpoint(checkpoint_path, probes, optimizers)
                 start_epoch += 1
                 logger.info(f"Resuming training from epoch {start_epoch}")
             except Exception as e:
@@ -432,7 +437,8 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
             labels = row['features'][0]
             label_vector, label_mask = label_to_hot_vector_w_mask(labels, phoneme_count)
             
-            optimizer.zero_grad()
+            for optim in optimizers:
+                optim.zero_grad()
             layer_losses = []
 
             hidden_states = load_hidden_states(idx, model_type, 'train', hidden_states_dir)
@@ -451,7 +457,6 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
                     loss_vec = criterion(pooled_probe, label_vector)
                     masked_loss = (loss_vec * label_mask).sum() / label_mask.sum().clamp_min(1.0)
                     layer_losses.append(masked_loss)
-                
                 except FileNotFoundError as e:
                     logger.error(f"Could not load hidden states for idx={idx}, layer={layer_idx}: {e}")
                     errors += 1
@@ -459,11 +464,13 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
             
             if not layer_losses:
                 continue
-            
+
+            for li, layer_loss in enumerate(layer_losses):
+                layer_loss.backward()
+                optimizers[li].step()
+
             loss = torch.stack(layer_losses).mean()
             epoch_loss += loss.item()
-            loss.backward()
-            optimizer.step()
         
         epoch_loss /= max(len(train_ds) - errors, 1)
         
@@ -473,7 +480,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
         )
         
         # Save checkpoint after each epoch
-        save_checkpoint(checkpoint_dir, model_type, epoch, probes, optimizer,
+        save_checkpoint(checkpoint_dir, model_type, epoch, probes, optimizers,
                         epoch_loss, eval_loss, eval_metrics, num_layers)
         
         log_entry = {
