@@ -155,14 +155,21 @@ def load_checkpoint(checkpoint_path: pathlib.Path, probes: nn.ModuleList,
 def find_latest_checkpoint(checkpoint_dir: pathlib.Path, model_type: str) -> Optional[pathlib.Path]:
     latest_path = checkpoint_dir / f"{model_type}_latest.pt"
 
+    logger.info(f'attempting to find latest checkpoint at {latest_path}')
+
     if latest_path.exists():
         return latest_path
+
+    logger.info(f'no latest checkpoint found, checking for epoch checkpoints')
 
     # Fallback
     checkpoints = list(checkpoint_dir.glob(f"{model_type}_epoch*.pt"))
     if checkpoints:
+        logger.info(f'found {len(checkpoints)} checkpoints')
         checkpoints.sort(key=lambda p: int(p.stem.split('epoch')[1]))
         return checkpoints[-1]
+
+    logger.info('no checkpoints found to load!')
 
     return None
 

@@ -88,6 +88,9 @@ if __name__ == "__main__":
         logger.info(f'Using hidden states directory: {hidden_states_dir}')
 
         checkpoint_path = find_latest_checkpoint(checkpoint_dir, mt)
+        if checkpoint_path is None:
+            raise FileNotFoundError(f'No checkpoint found at {checkpoint_dir}')
+
         try:
             start_epoch, _, _, _ = load_checkpoint(checkpoint_path, probes, optimizers)
             start_epoch += 1
