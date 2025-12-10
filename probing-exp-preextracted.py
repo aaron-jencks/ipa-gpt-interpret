@@ -393,7 +393,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
         for i in range(num_layers)
     ]
     
-    hidden_states_dir = pathlib.Path('/fs/scratch/PAS2836/ipa_gpt/github/ipa-gpt-interpret/data/token_hidden_states')
+    hidden_states_dir = pathlib.Path(cfg['hidden_states'])
     logger.info(f'Using hidden states directory: {hidden_states_dir}')
     
     start_epoch = 0

@@ -20,6 +20,7 @@
     }
   },
   "mappings": "data/mappings.json",
+  "hidden_states": "data/token_hidden_states",
   "windows": {
     "min_size": 3,
     "max_size": 11,
