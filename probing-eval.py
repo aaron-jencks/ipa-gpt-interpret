@@ -58,7 +58,6 @@ if __name__ == "__main__":
         tokenizer = utils.load_tokenizer(vocab, merges)
 
         logger.info('loading datasets')
-        train_ds = load_and_preprocess(cfg, 'train', tokenizer, mt, args.cpus)
         eval_ds = load_and_preprocess(cfg, 'validation', tokenizer, mt, args.cpus)
         # test_ds = load_and_preprocess(cfg, 'test', tokenizer, model_type, cpus)
 
