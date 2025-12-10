@@ -42,7 +42,7 @@ def compute_disagreement_matrix(
     boc, ac, bc, nc = 0, 0, 0, 0
     a_layer_preds = a_preds[layer]
     b_layer_preds = b_preds[layer]
-    for idx in range(len(labels)):
+    for idx in tqdm(range(len(labels)), desc='computing disagreement matrix'):
         if idx in excluded:
             logger.info(f'ignoring excluded row: {idx}')
             continue
