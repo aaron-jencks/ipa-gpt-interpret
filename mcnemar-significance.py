@@ -96,7 +96,7 @@ def determine_mcnemar_significance(
         layer_result = []
         for phoneme_idx in range(phoneme_count):
             boc, ac, bc, nc = compute_disagreement_matrix(layer_idx, phoneme_idx, normal_preds, ipa_preds, eval_ds, excluded)
-            chi_2 = ((ac - bc) * (ac - bc)) / (bc + ac)
+            chi_2 = (((ac - bc) * (ac - bc)) / (bc + ac)) if (bc + ac) > 0 else 0
             layer_result.append(chi_2 >= 3.84)
         result.append(layer_result)
     return result
