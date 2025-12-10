@@ -3,7 +3,7 @@ import logging
 import os
 import pathlib
 import random
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 from datasets import Dataset
 import matplotlib.pyplot as plt
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 def do_eval_epoch(probes: nn.ModuleList, eval_ds: Dataset, phoneme_count: int,
                   model_type: str, split: str, hidden_states_dir: pathlib.Path,
-                  num_layers: int, average_span: bool = False) -> Tuple[float, List[dict]]:
+                  num_layers: int, average_span: bool = False) -> Tuple[float, List[dict], List[Dict[int, List[bool]]]]:
     for probe in probes:
         probe.eval()
 
@@ -32,6 +32,7 @@ def do_eval_epoch(probes: nn.ModuleList, eval_ds: Dataset, phoneme_count: int,
     random.shuffle(dataset_order)
     criterion = nn.BCEWithLogitsLoss(reduction='none')
     layer_metrics = [{} for _ in range(num_layers)]
+    layer_predictions = [{} for _ in range(num_layers)]
     epoch_loss = 0
     errors = 0
 
@@ -70,6 +71,7 @@ def do_eval_epoch(probes: nn.ModuleList, eval_ds: Dataset, phoneme_count: int,
 
                     metric = layer_metrics[layer_idx]
                     pred = (torch.sigmoid(pooled_probe) > 0.5).bool()
+                    layer_predictions[layer_idx][idx] = pred.detach().cpu().numpy().tolist()
 
                     pred_nonzero = torch.nonzero(pred, as_tuple=False).squeeze()
 
@@ -138,7 +140,7 @@ def do_eval_epoch(probes: nn.ModuleList, eval_ds: Dataset, phoneme_count: int,
             layer_metric[fi]['f1'] = 2 * (precision * recall) / denom if denom > 0 else 0
 
     avg_loss = epoch_loss / max(len(eval_ds) - errors, 1)
-    return avg_loss, layer_metrics
+    return avg_loss, layer_metrics, layer_predictions
 
 
 def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
@@ -270,7 +272,7 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
 
         epoch_loss /= max(len(train_ds) - errors, 1)
 
-        eval_loss, eval_metrics = do_eval_epoch(
+        eval_loss, eval_metrics, _ = do_eval_epoch(
             probes, eval_ds, phoneme_count, model_type, 'validation',
             hidden_states_dir, num_layers, average_span
         )
