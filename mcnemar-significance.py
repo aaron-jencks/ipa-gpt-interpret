@@ -42,7 +42,7 @@ def compute_disagreement_matrix(
     boc, ac, bc, nc = 0, 0, 0, 0
     a_layer_preds = a_preds[layer]
     b_layer_preds = b_preds[layer]
-    for idx in tqdm(range(len(labels)), desc='computing disagreement matrix'):
+    for idx in range(len(labels)):
         if idx in excluded:
             logger.info(f'ignoring excluded row: {idx}')
             continue
@@ -92,12 +92,14 @@ def determine_mcnemar_significance(
         excluded: Set[int],
 ) -> List[List[bool]]:
     result = []
+    pbar = tqdm(total=phoneme_count * 12, desc='computing disagreement matrices')
     for layer_idx in range(12):
         layer_result = []
         for phoneme_idx in range(phoneme_count):
             boc, ac, bc, nc = compute_disagreement_matrix(layer_idx, phoneme_idx, normal_preds, ipa_preds, eval_ds, excluded)
             chi_2 = (((ac - bc) * (ac - bc)) / (bc + ac)) if (bc + ac) > 0 else 0
             layer_result.append(chi_2 >= 3.84)
+            pbar.update(1)
         result.append(layer_result)
     return result
 
