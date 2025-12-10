@@ -14,6 +14,7 @@
   },
   "checkpoints": {
     "prefix": "data/checkpoints",
+    "probe_prefix": "data/linear-classifier-checkpoints",
     "name": {
       "ipa": "russian_polish_ipa_09_25_2025_12_5_50k",
       "normal": "russian_polish_normal_09_25_2025_12_5_50k"

@@ -29,8 +29,6 @@ if __name__ == "__main__":
                     help='The model type')
     ap.add_argument('--output-log', type=str, default='probing_results_preextracted',
                     help='The file to store the final probing accuracies in')
-    ap.add_argument('--checkpoint-dir', type=str, default='checkpoints',
-                    help='Directory to save/load checkpoints')
     ap.add_argument('--average-span', action='store_true',
                     help='Average all tokens in the span instead of using last token')
     args = ap.parse_args()
@@ -38,7 +36,7 @@ if __name__ == "__main__":
 
     logger.info(f'training probes on {DEVICE}')
 
-    checkpoint_dir = pathlib.Path(args.checkpoint_dir)
+    checkpoint_dir = pathlib.Path(cfg['checkpoints']['probe_prefix'])
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     for mt in args.model_type:

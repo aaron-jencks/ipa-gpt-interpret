@@ -17,8 +17,6 @@ if __name__ == "__main__":
                    help='The model type')
     ap.add_argument('--output-log', type=str, default='probing_results_preextracted', 
                    help='The file to store the final probing accuracies in')
-    ap.add_argument('--checkpoint-dir', type=str, default='checkpoints',
-                   help='Directory to save/load checkpoints')
     ap.add_argument('--resume', action='store_true',
                    help='Resume from latest checkpoint if available')
     ap.add_argument('--average-span', action='store_true',
@@ -26,10 +24,10 @@ if __name__ == "__main__":
     args = ap.parse_args()
     cfg = config.load_config(args.config, args.default_config)
     
-    checkpoint_dir = pathlib.Path(args.checkpoint_dir)
+    checkpoint_dir = pathlib.Path(cfg['checkpoints']['probe_prefix'])
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     for mt in args.model_type:
         output_path = pathlib.Path('data') / f'{args.output_log}_{mt}.tsv'
         probes = do_train_run(cfg, mt, output_path, 12, 768,
-                            checkpoint_dir, args.resume, args.average_span, args.cpus)
+                              checkpoint_dir, args.resume, args.average_span, args.cpus)
