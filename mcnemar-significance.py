@@ -38,7 +38,6 @@ def compute_disagreement_matrix(
         a_preds: List[Dict[int, List[bool]]], b_preds: List[Dict[int, List[bool]]],
         labels: Dataset, excluded: Set[int],
 ) -> Tuple[int, int, int, int]:
-    ignored = set()
     boc, ac, bc, nc = 0, 0, 0, 0
     a_layer_preds = a_preds[layer]
     b_layer_preds = b_preds[layer]
@@ -104,6 +103,83 @@ def determine_mcnemar_significance(
     return result
 
 
+def mp_determine_mcnemar_significance(
+        eval_ds: Dataset, phoneme_count: int,
+        normal_preds: List[Dict[int, List[bool]]], ipa_preds: List[Dict[int, List[bool]]],
+        excluded: Set[int],
+        cpus: int,
+) -> List[List[bool]]:
+    def process_chunk(rows: Dict[str, list], idxs: List[int]) -> Dict[str, list]:
+        result = {}
+        for idx in range(len(idxs)):
+            if idxs[idx] in excluded:
+                logger.info(f'ignoring excluded row: {idxs[idx]}')
+                continue
+            labels = rows['features'][idx][0]
+            for layer_idx in range(12):
+                normal_layer_preds = normal_preds[layer_idx]
+                ipa_layer_preds = ipa_preds[layer_idx]
+                for phoneme_idx in range(phoneme_count):
+                    result_name = f'layer_{layer_idx}_phone_{phoneme_idx}'
+                    if result_name not in result:
+                        result[result_name] = []
+                    row_matrix = [0]*4
+                    if -phoneme_idx in labels:
+                        row_matrix[0] = 1  # boc
+                        result[result_name].append(row_matrix)
+                        continue
+                    row_index = 0
+                    if phoneme_idx in labels:
+                        if normal_layer_preds[phoneme_idx]:
+                            if ipa_layer_preds[phoneme_idx]:
+                                pass
+                            else:
+                                row_index = 1
+                        elif ipa_layer_preds[phoneme_idx]:
+                            row_index = 2
+                        else:
+                            row_index = 3
+                    else:
+                        if normal_layer_preds[phoneme_idx]:
+                            if ipa_layer_preds[phoneme_idx]:
+                                row_index = 3
+                            else:
+                                row_index = 2
+                        elif ipa_layer_preds[phoneme_idx]:
+                            row_index = 1
+                    row_matrix[row_index] = 1
+                    result[result_name].append(row_matrix)
+        return result
+
+    pds = eval_ds.map(process_chunk, batched=True, with_indices=True, num_proc=cpus)
+
+    result_matrices = []
+    for layer_idx in range(12):
+        result_matrices.append([])
+        for phoneme_idx in range(phoneme_count):
+            result_matrices[-1].append([0]*4)
+
+    for row in tqdm(pds, desc='condensing matrices'):
+        for layer_idx in range(12):
+            for phoneme_idx in range(phoneme_count):
+                result_name = f'layer_{layer_idx}_phone_{phoneme_idx}'
+                arr = row[result_name]
+                result_matrices[layer_idx][phoneme_idx][0] += arr[0]
+                result_matrices[layer_idx][phoneme_idx][1] += arr[1]
+                result_matrices[layer_idx][phoneme_idx][2] += arr[2]
+                result_matrices[layer_idx][phoneme_idx][3] += arr[3]
+
+    result = []
+    for layer_idx in range(12):
+        result_matrices.append([])
+        for phoneme_idx in range(phoneme_count):
+            boc, ac, bc, nc = result_matrices[layer_idx][phoneme_idx]
+            chi_2 = (((ac - bc) * (ac - bc)) / (bc + ac)) if (bc + ac) > 0 else 0
+            result[-1].append(chi_2 >= 3.84)
+
+    return result
+
+
 def get_eval_dataset(cfg, mt: str, cpus: int) -> Dataset:
     logger.info('loading tokenizer')
     vocab, merges = utils.get_tokenizer_paths(cfg, mt)
@@ -142,11 +218,62 @@ def get_predictions(cfg, mt: str, eval_ds: Dataset, phoneme_count: int) -> Tuple
     )
 
 
+def log_layer_feature_metrics(
+        normal_layer_metrics: List[dict],
+        ipa_layer_metrics: List[dict],
+        significances: List[List[bool]],
+        phoneme_mapping: dict, fname: pathlib.Path
+):
+    feature_names = sorted(phoneme_mapping['features'].keys(), key=lambda k: phoneme_mapping['features'][k])
+    lines = [
+        [
+            'layer', 'feature',
+            'normal_true_positive', 'normal_false_positive', 'normal_false_negative', 'normal_true_negative',
+            'normal_accuracy', 'normal_precision', 'normal_recall', 'normal_f1',
+            'ipa_true_positive', 'ipa_false_positive', 'ipa_false_negative', 'ipa_true_negative',
+            'ipa_accuracy', 'ipa_precision', 'ipa_recall', 'ipa_f1',
+            'is_significant']
+    ]
+    for li in range(12):
+        normal_metric = normal_layer_metrics[li]
+        ipa_metric = ipa_layer_metrics[li]
+        for fi in range(phoneme_count):
+            fi += 1
+            if 'matrix' not in normal_metric[fi]:
+                continue
+            entry_line = [
+                li, feature_names[fi - 1],
+                normal_metric[fi]['matrix']['tp'],
+                normal_metric[fi]['matrix']['fp'],
+                normal_metric[fi]['matrix']['fn'],
+                normal_metric[fi]['matrix']['tn'],
+                normal_metric[fi].get('accuracy', 0),
+                normal_metric[fi].get('precision', 0),
+                normal_metric[fi].get('recall', 0),
+                normal_metric[fi].get('f1', 0),
+                ipa_metric[fi]['matrix']['tp'],
+                ipa_metric[fi]['matrix']['fp'],
+                ipa_metric[fi]['matrix']['fn'],
+                ipa_metric[fi]['matrix']['tn'],
+                ipa_metric[fi].get('accuracy', 0),
+                ipa_metric[fi].get('precision', 0),
+                ipa_metric[fi].get('recall', 0),
+                ipa_metric[fi].get('f1', 0),
+                significances[li][fi - 1],
+            ]
+            lines.append(list(map(str, entry_line)))
+
+    s_lines = ['\t'.join(l) for l in lines]
+    with open(fname, 'w+') as fp:
+        fp.write('\n'.join(s_lines))
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap = utils.setup_default_args(ap)
     ap.add_argument('--average-span', action='store_true',
                     help='Average all tokens in the span instead of using last token')
+    ap.add_argument('--log-output-dir', type=pathlib.Path, default=pathlib.Path('data'))
     args = ap.parse_args()
     cfg = config.load_config(args.config, args.default_config)
 
@@ -166,6 +293,12 @@ if __name__ == "__main__":
     norm_loss, norm_met, norm_pred = get_predictions(cfg, 'normal', normal_ds, phoneme_count)
     ipa_loss, ipa_met, ipa_pred = get_predictions(cfg, 'ipa', eval_ds, phoneme_count)
 
-    significance = determine_mcnemar_significance(eval_ds, phoneme_count, norm_pred, ipa_pred, excluded_rows)
+    significance = mp_determine_mcnemar_significance(eval_ds, phoneme_count, norm_pred, ipa_pred, excluded_rows, args.cpus)
+
+    log_layer_feature_metrics(
+        norm_met, ipa_met, significance,
+        phoneme_mappings, args.log_output_dir / 'significance_test.tsv'
+    )
+
 
 
