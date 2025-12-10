@@ -13,7 +13,7 @@ import config
 import utils
 from probing_exp_routines import do_eval_epoch
 from probing_exp_utils import LinearProbe, find_latest_checkpoint, load_checkpoint, save_checkpoint, \
-    compute_macro_metrics, compute_layer_feature_heatmap, log_layer_feature_metrics
+    compute_macro_metrics, compute_layer_feature_heatmap, log_layer_feature_metrics, load_probe_checkpoint_no_optimizers
 from probing_new import load_and_preprocess
 
 logging.basicConfig(level=logging.INFO)
@@ -74,31 +74,19 @@ if __name__ == "__main__":
             for _ in range(12)
         ])
 
-        hyperparameters = cfg['hyperparameters']
-        criterion = nn.BCEWithLogitsLoss(reduction='none')
-        # We need one for EACH probe
-        optimizers = [
-            torch.optim.AdamW(probes[i].parameters(), lr=hyperparameters['learning_rate'])
-            for i in range(12)
-        ]
-
         hidden_states_dir = pathlib.Path(cfg['hidden_states'])
         logger.info(f'Using hidden states directory: {hidden_states_dir}')
 
         checkpoint_path = find_latest_checkpoint(checkpoint_dir, mt)
         if checkpoint_path is None:
             raise FileNotFoundError(f'No checkpoint found at {checkpoint_dir}')
-        load_checkpoint(checkpoint_path, probes, optimizers)
+        load_probe_checkpoint_no_optimizers(checkpoint_path, probes)
 
         eval_loss, eval_metrics = do_eval_epoch(
             probes,
             eval_ds, phoneme_count, mt, 'validation',
             hidden_states_dir, num_layers=12, average_span=args.average_span
         )
-
-        # Save checkpoint after each epoch
-        save_checkpoint(checkpoint_dir, mt, -1, probes, optimizers,
-                        0, eval_loss, eval_metrics, 12)
 
         log_entry = {
             'eval/loss': eval_loss,

@@ -128,6 +128,17 @@ def save_checkpoint(checkpoint_dir: pathlib.Path, model_type: str, epoch: int,
     logger.info(f"Saved latest checkpoint to {latest_path}")
 
 
+def load_probe_checkpoint_no_optimizers(checkpoint_path: pathlib.Path, probes: nn.ModuleList):
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+    logger.info(f"Loading checkpoint from {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=DEVICE)
+
+    for probe, state_dict in zip(probes, checkpoint['probe_state_dicts']):
+        probe.load_state_dict(state_dict)
+
+
 def load_checkpoint(checkpoint_path: pathlib.Path, probes: nn.ModuleList,
                     optimizers: List[torch.optim.Optimizer]) -> Tuple[int, float, float, List[dict]]:
     if not checkpoint_path.exists():
