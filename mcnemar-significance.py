@@ -114,6 +114,12 @@ def mp_determine_mcnemar_significance(
         for idx in range(len(idxs)):
             if idxs[idx] in excluded:
                 logger.info(f'ignoring excluded row: {idxs[idx]}')
+                for layer_idx in range(12):
+                    for phoneme_idx in range(phoneme_count):
+                        result_name = f'layer_{layer_idx}_phone_{phoneme_idx}'
+                        if result_name not in result:
+                            result[result_name] = []
+                        result[result_name].append([1, 0, 0, 0])  # boc
                 continue
             labels = rows['features'][idx][0]
             for layer_idx in range(12):
