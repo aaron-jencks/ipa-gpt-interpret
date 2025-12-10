@@ -177,7 +177,7 @@ def mp_determine_mcnemar_significance(
 
     result = []
     for layer_idx in range(12):
-        result_matrices.append([])
+        result.append([])
         for phoneme_idx in range(phoneme_count):
             boc, ac, bc, nc = result_matrices[layer_idx][phoneme_idx]
             chi_2 = (((ac - bc) * (ac - bc)) / (bc + ac)) if (bc + ac) > 0 else 0
