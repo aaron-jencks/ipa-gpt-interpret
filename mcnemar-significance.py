@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Set
 from datasets import Dataset
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
 import config
 import utils
@@ -22,7 +23,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def find_excluded_rows(normal_eval_ds: Dataset, ipa_eval_ds: Dataset) -> Set[int]:
     result = set()
-    for row_idx in range(len(normal_eval_ds)):
+    for row_idx in tqdm(range(len(normal_eval_ds)), desc='Finding excluded rows'):
         normal_row = normal_eval_ds[row_idx]
         ipa_row = ipa_eval_ds[row_idx]
 
