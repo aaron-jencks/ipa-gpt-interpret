@@ -53,8 +53,7 @@ def compute_disagreement_matrix(
 
         if start_position < 0 or end_position < 0:
             logger.warning(f'skipping row with no answer: {idx}')
-            ignored.add(idx)
-            continue
+            raise ValueError(f'row {idx} has no answer')
 
         label_list = labels[idx]
         a_preds = a_layer_preds[idx]
