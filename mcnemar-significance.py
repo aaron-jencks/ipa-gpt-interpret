@@ -58,30 +58,31 @@ def compute_disagreement_matrix(
         label_list = row['features'][0]
         a_preds = a_layer_preds[idx]
         b_preds = b_layer_preds[idx]
-        for phoneme in label_list:
-            if phoneme < 0:
-                continue
-            phoneme -= 1
-            if label_list[phoneme]:
-                if a_preds[phoneme]:
-                    if b_preds[phoneme]:
-                        boc += 1
-                    else:
-                        ac += 1
-                elif b_preds[phoneme]:
-                    bc += 1
-                else:
-                    nc += 1
-            else:
-                if a_preds[phoneme]:
-                    if b_preds[phoneme]:
-                        nc += 1
-                    else:
-                        bc += 1
-                elif b_preds[phoneme]:
-                    ac += 1
-                else:
+
+        if -phoneme in label_list:
+            boc += 1
+            continue
+
+        if phoneme in label_list:
+            if a_preds[phoneme]:
+                if b_preds[phoneme]:
                     boc += 1
+                else:
+                    ac += 1
+            elif b_preds[phoneme]:
+                bc += 1
+            else:
+                nc += 1
+        else:
+            if a_preds[phoneme]:
+                if b_preds[phoneme]:
+                    nc += 1
+                else:
+                    bc += 1
+            elif b_preds[phoneme]:
+                ac += 1
+            else:
+                boc += 1
     return boc, ac, bc, nc
 
 
