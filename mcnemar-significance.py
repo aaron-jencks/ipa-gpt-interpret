@@ -55,7 +55,7 @@ def compute_disagreement_matrix(
             logger.warning(f'skipping row with no answer: {idx}')
             raise ValueError(f'row {idx} has no answer')
 
-        label_list = labels[idx]
+        label_list = row['features'][0]
         a_preds = a_layer_preds[idx]
         b_preds = b_layer_preds[idx]
         if label_list[phoneme]:
