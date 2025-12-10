@@ -88,15 +88,7 @@ if __name__ == "__main__":
         checkpoint_path = find_latest_checkpoint(checkpoint_dir, mt)
         if checkpoint_path is None:
             raise FileNotFoundError(f'No checkpoint found at {checkpoint_dir}')
-
-        try:
-            start_epoch, _, _, _ = load_checkpoint(checkpoint_path, probes, optimizers)
-            start_epoch += 1
-            logger.info(f"Resuming training from epoch {start_epoch}")
-        except Exception as e:
-            logger.error(f"Failed to load checkpoint: {e}")
-            logger.info("Starting training from scratch")
-            start_epoch = 0
+        load_checkpoint(checkpoint_path, probes, optimizers)
 
         eval_loss, eval_metrics = do_eval_epoch(
             probes,
