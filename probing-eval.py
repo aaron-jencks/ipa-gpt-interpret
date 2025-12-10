@@ -12,7 +12,7 @@ import wandb
 import config
 import utils
 from probing_exp_routines import do_eval_epoch
-from probing_exp_utils import LinearProbe, find_latest_checkpoint, load_checkpoint, save_checkpoint, \
+from probing_exp_utils import LinearProbe, find_latest_checkpoint, \
     compute_macro_metrics, compute_layer_feature_heatmap, log_layer_feature_metrics, load_probe_checkpoint_no_optimizers
 from probing_new import load_and_preprocess
 
