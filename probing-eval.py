@@ -2,7 +2,6 @@ import argparse
 import json
 import logging
 import pathlib
-from logging import Logger
 
 import matplotlib.pyplot as plt
 import torch
@@ -17,7 +16,7 @@ from probing_exp_utils import LinearProbe, find_latest_checkpoint, \
 from probing_new import load_and_preprocess
 
 logging.basicConfig(level=logging.INFO)
-logger: Logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -81,7 +80,7 @@ if __name__ == "__main__":
             raise FileNotFoundError(f'No checkpoint found at {checkpoint_dir}')
         load_probe_checkpoint_no_optimizers(checkpoint_path, probes)
 
-        eval_loss, eval_metrics = do_eval_epoch(
+        eval_loss, eval_metrics, _ = do_eval_epoch(
             probes,
             eval_ds, phoneme_count, mt, 'validation',
             hidden_states_dir, num_layers=12, average_span=args.average_span
