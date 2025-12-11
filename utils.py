@@ -80,7 +80,7 @@ def compute_metrics(eval_pred):
 
 
 def setup_default_args(ap: ArgumentParser) -> ArgumentParser:
-    ap.add_argument('config', type=pathlib.Path, nargs='+', help='paths to config files')
+    ap.add_argument('config', type=pathlib.Path, nargs='*', help='paths to config files')
     ap.add_argument('--default-config', type=pathlib.Path, default=pathlib.Path('config/default.json'),
                     help='path to the default config file')
     ap.add_argument('--cpus', type=int, default=os.cpu_count(), help='number of cpus')
