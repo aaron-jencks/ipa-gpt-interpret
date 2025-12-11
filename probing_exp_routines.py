@@ -152,13 +152,15 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
     project_name = f'ipa-final-probing-linear-classifier-{model_type}-{extraction_method}'
     run_name = f'{model_type}_{extraction_method}_preextracted'
 
-    wrun = wandb.init(
-        entity='aaronjencks-the-ohio-state-university',
-        project=project_name,
-        name=run_name,
-        config=cfg['hyperparameters'],
-        resume='allow' if resume else False
-    )
+    wrun = None
+    if cfg['wandb']['enabled']:
+        wrun = wandb.init(
+            entity=cfg['wandb']['entity'],
+            project=project_name,
+            name=run_name,
+            config=cfg['hyperparameters'],
+            resume='allow' if resume else False
+        )
 
     logger.info('loading tokenizer')
     vocab, merges = utils.get_tokenizer_paths(cfg, model_type)
@@ -292,9 +294,13 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
             log_entry[f'eval/recall/layer_{layer:02d}'] = l_rec
             log_entry[f'eval/f1/layer_{layer:02d}'] = l_f1
 
-        eval_hm = compute_layer_feature_heatmap(eval_metrics, phoneme_mappings)
-        log_entry['eval/f1_heatmap'] = wandb.Image(eval_hm)
-        wandb.log(log_entry, step=epoch)
+        eval_hm = compute_layer_feature_heatmap(
+            eval_metrics, phoneme_mappings,
+            pathlib.Path(cfg['heatmap_prefix']), run_name
+        )
+        if wrun is not None:
+            log_entry['eval/f1_heatmap'] = wandb.Image(eval_hm)
+            wandb.log(log_entry, step=epoch)
         plt.close(eval_hm)
 
     logger.info('Finished training')
@@ -323,5 +329,6 @@ def do_train_run(cfg: dict, model_type: str, output_file: pathlib.Path,
     if one_epoch:
         log_layer_feature_metrics(eval_metrics, phoneme_mappings, output_file)
 
-    wrun.finish()
+    if wrun is not None:
+        wrun.finish()
     return probes

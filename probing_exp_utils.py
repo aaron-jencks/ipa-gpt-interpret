@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import logging
 import pathlib
@@ -185,8 +186,14 @@ def find_latest_checkpoint(checkpoint_dir: pathlib.Path, model_type: str) -> Opt
     return None
 
 
-def compute_layer_feature_heatmap(layer_metrics: List[dict], phoneme_mapping: dict, metric: str = 'f1') -> plt.Figure:
-    fig, ax = plt.subplots(figsize=(12, 8))
+def save_heatmap_figure(prefix: pathlib.Path, name: str, metric: str, image: plt.Figure):
+    ds = dt.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    fname = prefix / f"{name}_{metric}_{ds}.png"
+    image.savefig(fname)
+
+
+def compute_layer_feature_heatmap(layer_metrics: List[dict], phoneme_mapping: dict, image_prefix: pathlib.Path, name: str, metric: str = 'f1') -> plt.Figure:
+    fig, ax = plt.subplots()
     ax.set_xlabel('Feature')
     ax.set_ylabel('Layer')
     ax.set_title(f'{metric.upper()} by layer x feature')
@@ -205,6 +212,8 @@ def compute_layer_feature_heatmap(layer_metrics: List[dict], phoneme_mapping: di
     ax.set_xticks(list(range(phoneme_count)))
     ax.set_xticklabels(feature_names, rotation=90)
     ax.set_yticks(list(range(len(layer_metrics))))
+
+    save_heatmap_figure(image_prefix, name, metric, ax)
 
     return fig
 
