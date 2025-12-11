@@ -53,7 +53,7 @@ cd "$repo_prefix"
 
 # Run code here
 # transcription
-echo "transcribing dataset..."
+echo "analyzing dataset..."
 python bpe-analysis.py \
   "$tokenizers_prefix" "$tokenizer_name" \
   --dataset "$dataset" --feature "$feature" \
