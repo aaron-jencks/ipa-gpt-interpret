@@ -1,12 +1,13 @@
 import argparse
-import json
 from copy import deepcopy
 from dataclasses import dataclass
+import json
 import logging
 import multiprocessing as mp
 import os
 import pathlib
 from queue import Full
+from typing import Dict
 
 from datasets import concatenate_datasets, load_dataset
 from transformers import GPT2TokenizerFast
@@ -17,6 +18,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+GLOBAL_DATASET = None
+
+
 @dataclass
 class Config:
     vocab: pathlib.Path
@@ -24,54 +28,25 @@ class Config:
     feature: str
 
 
-def counting_daemon(qin: mp.Queue, qout: mp.Queue, cfg: Config):
+def counting_daemon(qin: mp.Queue, arr: mp.Array, lang_codes: Dict[str, int], cfg: Config):
     tokenizer = GPT2TokenizerFast(
         str(cfg.vocab), str(cfg.merges),
         add_prefix_space=True
     )
 
     while True:
-        records = qin.get()
-        if records is None:
+        slice = qin.get()
+        if slice is None:
             break
+        slice_start, slice_end = slice
+        records = GLOBAL_DATASET[slice_start:slice_end]
         langs = records['language']
         tokens = tokenizer(records[cfg.feature])['input_ids']
-        batch_inventory = {}
         for ri, row_tokens in enumerate(tokens):
             lang = langs[ri]
-            if lang not in batch_inventory:
-                batch_inventory[lang] = {}
+            lang_offset = lang_codes[lang] * 50_000
             for token in row_tokens:
-                if token not in batch_inventory[lang]:
-                    batch_inventory[lang][token] = 1
-                else:
-                    batch_inventory[lang][token] += 1
-        qout.put(batch_inventory)
-
-
-def collator_daemon(qin: mp.Queue, qout: mp.Queue, batch_size: int, total_length: int):
-    result = {}
-
-    pbar = tqdm(total=total_length, desc='collecting data')
-    while True:
-        job = qin.get()
-        if job is None:
-            break
-        batch_inventory = job
-        for lang in batch_inventory:
-            inventory = batch_inventory[lang]
-            if lang not in result:
-                result[lang] = inventory
-            else:
-                for token in inventory:
-                    if token not in result[lang]:
-                        result[lang][token] = inventory[token]
-                    else:
-                        result[lang][token] += inventory[token]
-        pbar.update(batch_size)
-    pbar.close()
-
-    qout.put(result)
+                arr[lang_offset + token] += 1
 
 
 if __name__ == '__main__':
@@ -103,30 +78,30 @@ if __name__ == '__main__':
     )
 
     logger.info('loading dataset...')
-    dataset = load_dataset(args.dataset, cache_dir=args.cache)
-    merged_dataset = concatenate_datasets([dataset[split] for split in dataset])
+    dataset = load_dataset(args.dataset, cache_dir=args.cache, num_proc=args.cpus)
+    GLOBAL_DATASET = concatenate_datasets([dataset[split] for split in dataset])
+
+    language_codes = {v: k for k, v in enumerate(GLOBAL_DATASET.unique('language'))}
+
+    logger.info('setting up output...')
+    output_array = mp.Array('i', 50_000 * len(language_codes))
 
     logger.info('generating processors...')
     processing_config = Config(vocab_fname, merges_fname, args.feature)
 
     queues = [mp.Queue() for _ in range(args.cpus)]
-    qout = mp.Queue()
-    final_qout = mp.Queue()
-    collator = mp.Process(target=collator_daemon, args=(qout, final_qout, args.batch_size, len(merged_dataset)))
-    collator.start()
     procs = []
     for pi in range(args.cpus):
-        proc = mp.Process(target=counting_daemon, args=(queues[pi], qout, processing_config))
+        proc = mp.Process(target=counting_daemon, args=(queues[pi], output_array, language_codes, processing_config))
         proc.start()
         procs.append(proc)
 
     qi = 0
-    for idx in range(0, len(merged_dataset), args.batch_size):
-        batch_end = min(idx + args.batch_size, len(merged_dataset))
-        batch = merged_dataset[idx:batch_end]
+    for idx in tqdm(range(0, len(GLOBAL_DATASET), args.batch_size), desc='queueing up batches'):
+        batch_end = min(idx + args.batch_size, len(GLOBAL_DATASET))
         while True:
             try:
-                queues[qi].put_nowait(batch)
+                queues[qi].put_nowait((idx, batch_end))
                 qi = (qi + 1) % len(queues)
                 break
             except Full as e:
@@ -135,31 +110,40 @@ if __name__ == '__main__':
     logger.info('finished feeding data, waiting for results...')
     for q in queues:
         q.put(None)
+    pbar = tqdm(total=len(procs), desc='waiting for daemons to finish...')
     for p in procs:
         p.join()
-    qout.put(None)
-    inventories = final_qout.get()
-    collator.join()
 
     logger.info('analyzing data...')
+
+    shared_inventory = None
+    unfiltered_inventories = {}
+    disjoint_inventories = {}
+    for lang in language_codes.keys():
+        lang_offset = language_codes[lang] * 50_000
+        unfiltered_inventories[lang] = {t: s for t, s in enumerate(output_array[lang_offset:lang_offset + 50_000]) if s > 0}
+        if shared_inventory is None:
+            shared_inventory = set(unfiltered_inventories[lang].keys())
+        else:
+            shared_inventory &= set(unfiltered_inventories[lang].keys())
+    for lang in language_codes.keys():
+        disjoint_inventories[lang] = set(unfiltered_inventories[lang].keys()) - shared_inventory
+
     logger.info('token inventories:')
-    for lang in inventories:
+    for lang in language_codes.keys():
         logger.info(f'{lang}: Top 10 Tokens\n   \tToken\tCount')
-        tokens = sorted(list(inventories[lang].keys()), key=lambda x: inventories[lang][x], reverse=True)
+        tokens = sorted(list(disjoint_inventories[lang]), key=lambda x: unfiltered_inventories[lang][x], reverse=True)
         print('token inventory count:', len(tokens))
         for ti, tok in enumerate(tokens[:10]):
-            print(f'{ti + 1:02d}. & {tok} & "\ipa{{{tokenizer.decode([tok])}}}" & {inventories[lang][tok]:,d} \\\\')
+            print(f'{ti + 1:02d}. & {tok} & "\ipa{{{tokenizer.decode([tok])}}}" & {unfiltered_inventories[lang][tok]:,d} \\\\')
 
     logger.info('shared inventory')
-    lang_list = list(inventories.keys())
-    assert len(lang_list) == 2, "multilingual models not supported"
-    merged_inventory = deepcopy(inventories[lang_list[0]])
-    for token in inventories[lang_list[1]]:
-        if token in merged_inventory:
-            merged_inventory[token] += inventories[lang_list[1]][token]
-
-    logger.info(f'size of shared inventory: {len(merged_inventory)}')
+    logger.info(f'size of shared inventory: {len(shared_inventory)}')
     logger.info('Top 10 Tokens\n   \tToken\tCount')
-    tokens = sorted(list(merged_inventory.keys()), key=lambda x: merged_inventory[x], reverse=True)
+    tokens = sorted(
+        list(shared_inventory),
+        key=lambda x: sum([unfiltered_inventories[lang][x] for lang in language_codes.keys()]),
+        reverse=True
+    )
     for ti, tok in enumerate(tokens[:10]):
-        print(f'{ti + 1:02d}. & {tok} & "\ipa{{{tokenizer.decode([tok])}}}" &  {merged_inventory[tok]:,d} \\\\')
+        print(f'{ti + 1:02d}. & {tok} & "\ipa{{{tokenizer.decode([tok])}}}" &  {sum([unfiltered_inventories[lang][tok] for lang in language_codes.keys()]):,d} \\\\')
