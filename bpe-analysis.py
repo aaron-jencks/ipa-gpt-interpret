@@ -28,7 +28,7 @@ class Config:
     feature: str
 
 
-def counting_daemon(qin: mp.Queue, arr: mp.Array, lang_codes: Dict[str, int], cfg: Config):
+def counting_daemon(qin: mp.Queue, arr: mp.Array, qout: mp.Queue, lang_codes: Dict[str, int], cfg: Config):
     tokenizer = GPT2TokenizerFast(
         str(cfg.vocab), str(cfg.merges),
         add_prefix_space=True
@@ -47,6 +47,7 @@ def counting_daemon(qin: mp.Queue, arr: mp.Array, lang_codes: Dict[str, int], cf
             lang_offset = lang_codes[lang] * 50_000
             for token in row_tokens:
                 arr[lang_offset + token] += 1
+        qout.put(slice_end - slice_start)
 
 
 if __name__ == '__main__':
@@ -85,6 +86,7 @@ if __name__ == '__main__':
 
     logger.info('setting up output...')
     output_array = mp.Array('i', 50_000 * len(language_codes))
+    qout = mp.Queue()
 
     logger.info('generating processors...')
     processing_config = Config(vocab_fname, merges_fname, args.feature)
@@ -92,13 +94,15 @@ if __name__ == '__main__':
     queues = [mp.Queue() for _ in range(args.cpus)]
     procs = []
     for pi in range(args.cpus):
-        proc = mp.Process(target=counting_daemon, args=(queues[pi], output_array, language_codes, processing_config))
+        proc = mp.Process(target=counting_daemon, args=(queues[pi], output_array, qout, language_codes, processing_config))
         proc.start()
         procs.append(proc)
 
     qi = 0
+    total_batches = 0
     for idx in tqdm(range(0, len(GLOBAL_DATASET), args.batch_size), desc='queueing up batches'):
         batch_end = min(idx + args.batch_size, len(GLOBAL_DATASET))
+        total_batches += 1
         while True:
             try:
                 queues[qi].put_nowait((idx, batch_end))
@@ -108,6 +112,8 @@ if __name__ == '__main__':
                 qi = (qi + 1) % len(queues)
 
     logger.info('finished feeding data, waiting for results...')
+    for _ in tqdm(range(total_batches), desc='processing batches'):
+        qout.get()
     for q in queues:
         q.put(None)
     pbar = tqdm(total=len(procs), desc='waiting for daemons to finish...')
