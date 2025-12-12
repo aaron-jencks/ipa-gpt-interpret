@@ -135,17 +135,17 @@ if __name__ == '__main__':
     for lang in language_codes.keys():
         disjoint_inventories[lang] = set(unfiltered_inventories[lang].keys()) - shared_inventory
 
-    logger.info('token inventories:')
+    print('token inventories:')
     for lang in language_codes.keys():
-        logger.info(f'{lang}: Top 10 Tokens\n   \tToken\tCount')
+        print(f'{lang}: Top 10 Tokens\n   \tToken\tCount')
         tokens = sorted(list(disjoint_inventories[lang]), key=lambda x: unfiltered_inventories[lang][x], reverse=True)
         print('token inventory count:', len(tokens))
         for ti, tok in enumerate(tokens[:10]):
             print(f'{ti + 1:02d}. & {tok} & "\ipa{{{tokenizer.decode([tok])}}}" & {unfiltered_inventories[lang][tok]:,d} \\\\')
 
-    logger.info('shared inventory')
-    logger.info(f'size of shared inventory: {len(shared_inventory)}')
-    logger.info('Top 10 Tokens\n   \tToken\tCount')
+    print('shared inventory')
+    print(f'size of shared inventory: {len(shared_inventory)}')
+    print('Top 10 Tokens\n   \tToken\tCount')
     tokens = sorted(
         list(shared_inventory),
         key=lambda x: sum([unfiltered_inventories[lang][x] for lang in language_codes.keys()]),
