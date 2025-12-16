@@ -1,5 +1,4 @@
 import argparse
-from copy import deepcopy
 from dataclasses import dataclass
 import json
 import logging
@@ -19,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 GLOBAL_DATASET = None
+VOCAB_SIZE = 50_001
 
 
 @dataclass
@@ -44,7 +44,7 @@ def counting_daemon(qin: mp.Queue, arr: mp.Array, qout: mp.Queue, lang_codes: Di
         tokens = tokenizer(records[cfg.feature])['input_ids']
         for ri, row_tokens in enumerate(tokens):
             lang = langs[ri]
-            lang_offset = lang_codes[lang] * 50_000
+            lang_offset = lang_codes[lang] * VOCAB_SIZE
             for token in row_tokens:
                 arr[lang_offset + token] += 1
         qout.put(slice_end - slice_start)
@@ -85,7 +85,7 @@ if __name__ == '__main__':
     language_codes = {v: k for k, v in enumerate(GLOBAL_DATASET.unique('language'))}
 
     logger.info('setting up output...')
-    output_array = mp.Array('i', 50_000 * len(language_codes))
+    output_array = mp.Array('i', VOCAB_SIZE * len(language_codes))
     qout = mp.Queue()
 
     logger.info('generating processors...')
@@ -126,8 +126,8 @@ if __name__ == '__main__':
     unfiltered_inventories = {}
     disjoint_inventories = {}
     for lang in language_codes.keys():
-        lang_offset = language_codes[lang] * 50_000
-        unfiltered_inventories[lang] = {t: s for t, s in enumerate(output_array[lang_offset:lang_offset + 50_000]) if s > 0}
+        lang_offset = language_codes[lang] * VOCAB_SIZE
+        unfiltered_inventories[lang] = {t: s for t, s in enumerate(output_array[lang_offset:lang_offset + VOCAB_SIZE]) if s > 0}
         if shared_inventory is None:
             shared_inventory = set(unfiltered_inventories[lang].keys())
         else:
