@@ -66,7 +66,7 @@ def log_inventories(
             ts = tokenizer.decode([token]).replace('\n', '\\n')
             bs = 'N/A'
             if ts == '�' or len(ts) == 1:
-                bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('latin-1'))
+                bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('utf-8'))
             lines.append(f'{token},"{ts}","{bs}",{supports[lang][token]}')
         with open(directory / f'{lang}.csv', 'w+') as fp:
             fp.write('\n'.join(lines))
@@ -78,7 +78,7 @@ def log_inventories(
         ts = tokenizer.decode([token]).replace('\n', '\\n')
         bs = 'N/A'
         if ts == '�' or len(ts) == 1:
-            bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('latin-1'))
+            bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('utf-8'))
         support = sum(supports[lang][token] for lang in disjoint.keys())
         shared_lines.append(f'{token},"{ts}","{bs}",{support}')
     with open(directory / 'shared.csv', 'w+') as fp:
