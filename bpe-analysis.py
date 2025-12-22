@@ -66,7 +66,7 @@ def log_inventories(
             ts = tokenizer.decode([token]).replace('\n', '\\n')
             bs = 'N/A'
             if ts == '�' or len(ts) == 1:
-                bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('utf-8'))
+                bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('latin-1'))
             lines.append(f'{token},"{ts}","{bs}",{supports[lang][token]}')
         with open(directory / f'{lang}.csv', 'w+') as fp:
             fp.write('\n'.join(lines))
@@ -78,7 +78,7 @@ def log_inventories(
         ts = tokenizer.decode([token]).replace('\n', '\\n')
         bs = 'N/A'
         if ts == '�' or len(ts) == 1:
-            bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('utf-8'))
+            bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('latin-1'))
         support = sum(supports[lang][token] for lang in disjoint.keys())
         shared_lines.append(f'{token},"{ts}","{bs}",{support}')
     with open(directory / 'shared.csv', 'w+') as fp:
@@ -106,8 +106,9 @@ if __name__ == '__main__':
     logger.info(f'reading data from {str(vocab_fname)} and {str(merges_fname)}')
 
     logger.info('loading vocab indices...')
-    with open(vocab_fname) as fp:
-        vocab_data = json.load(fp)
+    with open(vocab_fname, 'rb') as fp:
+        bdata = fp.read().decode('latin-1')
+        vocab_data = json.loads(bdata)
     vocab_indices = {v: k for k, v in vocab_data.items()}
     tokenizer = GPT2TokenizerFast(
         str(vocab_fname), str(merges_fname),
