@@ -28,7 +28,7 @@ class Config:
     feature: str
 
 
-def counting_daemon(qin: mp.Queue, arr: mp.Array, qout: mp.Queue, lang_codes: Dict[str, int], cfg: Config):
+def counting_daemon(qin: mp.Queue, arr: mp.Array, avg: mp.Array, qout: mp.Queue, lang_codes: Dict[str, int], cfg: Config):
     tokenizer = GPT2TokenizerFast(
         str(cfg.vocab), str(cfg.merges),
         add_prefix_space=True
@@ -44,7 +44,11 @@ def counting_daemon(qin: mp.Queue, arr: mp.Array, qout: mp.Queue, lang_codes: Di
         tokens = tokenizer(records[cfg.feature])['input_ids']
         for ri, row_tokens in enumerate(tokens):
             lang = langs[ri]
-            lang_offset = lang_codes[lang] * VOCAB_SIZE
+            lang_code = lang_codes[lang]
+            lang_offset = lang_code * VOCAB_SIZE
+            lang_avg, lang_count = avg[lang_code * 2:lang_code * 2 + 1]
+            avg[lang_code * 2] = (lang_avg * lang_count + len(row_tokens)) / (lang_count + 1)
+            avg[lang_code * 2 + 1] += 1
             for token in row_tokens:
                 arr[lang_offset + token] += 1
         qout.put(slice_end - slice_start)
@@ -54,7 +58,8 @@ def log_inventories(
         directory: pathlib.Path,
         tokenizer: GPT2TokenizerFast, vocab: Dict[int, str],
         supports: Dict[str, Dict[int, int]],
-        disjoint: Dict[str, Set[int]], shared: Set[int]
+        disjoint: Dict[str, Set[int]], shared: Set[int],
+        avgs: Dict[str, float]
 ):
     logger.info(f'saving phonetic inventories to {directory}')
 
@@ -83,6 +88,18 @@ def log_inventories(
         shared_lines.append(f'{token},"{ts}","{bs}",{support}')
     with open(directory / 'shared.csv', 'w+') as fp:
         fp.write('\n'.join(shared_lines))
+
+    with open(directory / 'metrics.json', 'w+') as fp:
+        metrics = {}
+        for lang in disjoint.keys():
+            metrics[lang] = {
+                'average_length': avgs[lang],
+                'count': len(disjoint[lang]),
+            }
+        metrics['shared'] = {
+            'count': len(shared)
+        }
+        json.dump(metrics, fp, indent=4)
 
 
 if __name__ == '__main__':
@@ -123,6 +140,7 @@ if __name__ == '__main__':
 
     logger.info('setting up output...')
     output_array = mp.Array('i', VOCAB_SIZE * len(language_codes))
+    output_averages = mp.Array('d', len(language_codes) * 2)
     qout = mp.Queue()
 
     logger.info('generating processors...')
@@ -131,7 +149,7 @@ if __name__ == '__main__':
     queues = [mp.Queue() for _ in range(args.cpus)]
     procs = []
     for pi in range(args.cpus):
-        proc = mp.Process(target=counting_daemon, args=(queues[pi], output_array, qout, language_codes, processing_config))
+        proc = mp.Process(target=counting_daemon, args=(queues[pi], output_array, output_averages, qout, language_codes, processing_config))
         proc.start()
         procs.append(proc)
 
@@ -196,5 +214,6 @@ if __name__ == '__main__':
         args.result_directory,
         tokenizer, vocab_indices,
         unfiltered_inventories,
-        disjoint_inventories, shared_inventory
+        disjoint_inventories, shared_inventory,
+        output_averages,
     )
