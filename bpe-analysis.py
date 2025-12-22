@@ -6,7 +6,7 @@ import multiprocessing as mp
 import os
 import pathlib
 from queue import Full
-from typing import Dict
+from typing import Dict, Set
 
 from datasets import concatenate_datasets, load_dataset
 from transformers import GPT2TokenizerFast
@@ -50,6 +50,41 @@ def counting_daemon(qin: mp.Queue, arr: mp.Array, qout: mp.Queue, lang_codes: Di
         qout.put(slice_end - slice_start)
 
 
+def log_inventories(
+        directory: pathlib.Path,
+        tokenizer: GPT2TokenizerFast, vocab: Dict[int, str],
+        supports: Dict[str, Dict[int, int]],
+        disjoint: Dict[str, Set[int]], shared: Set[int]
+):
+    logger.info(f'saving phonetic inventories to {directory}')
+
+    for lang in disjoint.keys():
+        lines = [
+            '"token","string","byte","support"'
+        ]
+        for token in disjoint[lang]:
+            ts = tokenizer.decode([token]).replace('\n', '\\n')
+            bs = 'N/A'
+            if ts == '�' or len(ts) == 1:
+                bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('latin-1'))
+            lines.append(f'{token},"{ts}","{bs}",{supports[lang][token]}')
+        with open(directory / f'{lang}.csv', 'w+') as fp:
+            fp.write('\n'.join(lines))
+
+    shared_lines = [
+        '"token","string","byte","support"'
+    ]
+    for token in shared:
+        ts = tokenizer.decode([token]).replace('\n', '\\n')
+        bs = 'N/A'
+        if ts == '�' or len(ts) == 1:
+            bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('latin-1'))
+        support = sum(supports[lang][token] for lang in disjoint.keys())
+        shared_lines.append(f'{token},"{ts}","{bs}",{support}')
+    with open(directory / 'shared.csv', 'w+') as fp:
+        fp.write('\n'.join(shared_lines))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser(description='analyzes the bpe tokenizer token inventories of the language in the dataset')
     ap.add_argument('codes', type=pathlib.Path, help='indicates where the vocab and merges are stored')
@@ -60,6 +95,7 @@ if __name__ == '__main__':
                         help='the location of the cache folder for huggingface')
     ap.add_argument('--dataset', type=str, default='openwebtext', help='the dataset to use')
     ap.add_argument('--batch-size', type=int, default=2000, help='the batch size of the tokenizing')
+    ap.add_argument('--result-directory', type=pathlib.Path, default=pathlib.Path('data/token-analysis'), help='the directory to save the analysis results to')
     args = ap.parse_args()
 
     procs = []
@@ -153,3 +189,10 @@ if __name__ == '__main__':
     )
     for ti, tok in enumerate(tokens[:10]):
         print(f'{ti + 1:02d}. & {tok} & "\ipa{{{tokenizer.decode([tok])}}}" &  {sum([unfiltered_inventories[lang][tok] for lang in language_codes.keys()]):,d} \\\\')
+
+    log_inventories(
+        args.result_directory,
+        tokenizer, vocab_indices,
+        unfiltered_inventories,
+        disjoint_inventories, shared_inventory
+    )
