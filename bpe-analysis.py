@@ -210,11 +210,17 @@ if __name__ == '__main__':
     for ti, tok in enumerate(tokens[:10]):
         print(f'{ti + 1:02d}. & {tok} & "\ipa{{{tokenizer.decode([tok])}}}" &  {sum([unfiltered_inventories[lang][tok] for lang in language_codes.keys()]):,d} \\\\')
 
+
+    lang_averages = {
+        lang: output_averages[language_codes[lang] * 2]
+        for lang in language_codes.keys()
+    }
+
     os.makedirs(args.result_directory, exist_ok=True)
     log_inventories(
         args.result_directory,
         tokenizer, vocab_indices,
         unfiltered_inventories,
         disjoint_inventories, shared_inventory,
-        output_averages,
+        lang_averages,
     )
