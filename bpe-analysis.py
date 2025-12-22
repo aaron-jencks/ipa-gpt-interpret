@@ -46,7 +46,7 @@ def counting_daemon(qin: mp.Queue, arr: mp.Array, avg: mp.Array, qout: mp.Queue,
             lang = langs[ri]
             lang_code = lang_codes[lang]
             lang_offset = lang_code * VOCAB_SIZE
-            lang_avg, lang_count = avg[lang_code * 2:lang_code * 2 + 1]
+            lang_avg, lang_count = avg[lang_code * 2], avg[lang_code * 2 + 1]
             avg[lang_code * 2] = (lang_avg * lang_count + len(row_tokens)) / (lang_count + 1)
             avg[lang_code * 2 + 1] += 1
             for token in row_tokens:
