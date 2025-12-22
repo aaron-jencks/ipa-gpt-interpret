@@ -28,7 +28,7 @@ class Config:
     feature: str
 
 
-def counting_daemon(qin: mp.Queue, arr: mp.Array, avg: mp.Array, qout: mp.Queue, lang_codes: Dict[str, int], cfg: Config):
+def counting_daemon(qin: mp.Queue, arr: mp.Array, avg: mp.Array, qout: mp.Queue, lang_feature: str, lang_codes: Dict[str, int], cfg: Config):
     tokenizer = GPT2TokenizerFast(
         str(cfg.vocab), str(cfg.merges),
         add_prefix_space=True
@@ -40,7 +40,7 @@ def counting_daemon(qin: mp.Queue, arr: mp.Array, avg: mp.Array, qout: mp.Queue,
             break
         slice_start, slice_end = slice
         records = GLOBAL_DATASET[slice_start:slice_end]
-        langs = records['language']
+        langs = records[lang_feature]
         tokens = tokenizer(records[cfg.feature])['input_ids']
         for ri, row_tokens in enumerate(tokens):
             lang = langs[ri]
@@ -107,6 +107,7 @@ if __name__ == '__main__':
     ap.add_argument('codes', type=pathlib.Path, help='indicates where the vocab and merges are stored')
     ap.add_argument('name', type=str, help='indicates the prefix to the vocab and merge files')
     ap.add_argument('--feature', type=str, default='text', help='the feature column name to apply')
+    ap.add_argument('--lang-feature', type=str, default='language', help='the feature column name to extract the language names from')
     ap.add_argument('--cpus', type=int, default=os.cpu_count(), help='the number of cores to use')
     ap.add_argument('--cache', type=pathlib.Path, default=pathlib.Path('./cache/huggingface'),
                         help='the location of the cache folder for huggingface')
@@ -136,7 +137,7 @@ if __name__ == '__main__':
     dataset = load_dataset(args.dataset, cache_dir=args.cache, num_proc=args.cpus)
     GLOBAL_DATASET = concatenate_datasets([dataset[split] for split in dataset])
 
-    language_codes = {v: k for k, v in enumerate(GLOBAL_DATASET.unique('language'))}
+    language_codes = {v: k for k, v in enumerate(GLOBAL_DATASET.unique(args.lang_feature))}
 
     logger.info('setting up output...')
     output_array = mp.Array('i', VOCAB_SIZE * len(language_codes))
@@ -149,7 +150,7 @@ if __name__ == '__main__':
     queues = [mp.Queue() for _ in range(args.cpus)]
     procs = []
     for pi in range(args.cpus):
-        proc = mp.Process(target=counting_daemon, args=(queues[pi], output_array, output_averages, qout, language_codes, processing_config))
+        proc = mp.Process(target=counting_daemon, args=(queues[pi], output_array, output_averages, qout, args.lang_feature, language_codes, processing_config))
         proc.start()
         procs.append(proc)
 
