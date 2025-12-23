@@ -46,9 +46,10 @@ def counting_daemon(qin: mp.Queue, arr: mp.Array, avg: mp.Array, qout: mp.Queue,
             lang = langs[ri]
             lang_code = lang_codes[lang]
             lang_offset = lang_code * VOCAB_SIZE
-            lang_avg, lang_count = avg[lang_code * 2], avg[lang_code * 2 + 1]
-            avg[lang_code * 2] = (lang_avg * lang_count + len(row_tokens)) / (lang_count + 1)
-            avg[lang_code * 2 + 1] += 1
+            lang_avg, lang_char_avg, lang_count = avg[lang_code * 3], avg[lang_code * 3 + 1], avg[lang_code * 3 + 2]
+            avg[lang_code * 3] = (lang_avg * lang_count + len(row_tokens)) / (lang_count + 1)
+            avg[lang_code * 3 + 1] = (lang_char_avg * lang_count + len(records[cfg.feature][ri])) / (lang_count + 1)
+            avg[lang_code * 3 + 2] += 1
             for token in row_tokens:
                 arr[lang_offset + token] += 1
         qout.put(slice_end - slice_start)
@@ -59,7 +60,7 @@ def log_inventories(
         tokenizer: GPT2TokenizerFast, vocab: Dict[int, str],
         supports: Dict[str, Dict[int, int]],
         disjoint: Dict[str, Set[int]], shared: Set[int],
-        avgs: Dict[str, float]
+        avgs: Dict[str, float], char_avgs: Dict[str, float],
 ):
     logger.info(f'saving phonetic inventories to {directory}')
 
@@ -93,7 +94,8 @@ def log_inventories(
         metrics = {}
         for lang in disjoint.keys():
             metrics[lang] = {
-                'average_length': avgs[lang],
+                'average_token_length': avgs[lang],
+                'average_character_length': char_avgs[lang],
                 'count': len(disjoint[lang]),
             }
         metrics['shared'] = {
@@ -141,7 +143,7 @@ if __name__ == '__main__':
 
     logger.info('setting up output...')
     output_array = mp.Array('i', VOCAB_SIZE * len(language_codes))
-    output_averages = mp.Array('d', len(language_codes) * 2)
+    output_averages = mp.Array('d', len(language_codes) * 3)
     qout = mp.Queue()
 
     logger.info('generating processors...')
@@ -212,7 +214,12 @@ if __name__ == '__main__':
 
 
     lang_averages = {
-        lang: output_averages[language_codes[lang] * 2]
+        lang: output_averages[language_codes[lang] * 3]
+        for lang in language_codes.keys()
+    }
+
+    lang_char_averages = {
+        lang: output_averages[language_codes[lang] * 3 + 1]
         for lang in language_codes.keys()
     }
 
@@ -222,5 +229,5 @@ if __name__ == '__main__':
         tokenizer, vocab_indices,
         unfiltered_inventories,
         disjoint_inventories, shared_inventory,
-        lang_averages,
+        lang_averages, lang_char_averages,
     )
