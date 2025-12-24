@@ -1,6 +1,5 @@
 import argparse
 from dataclasses import dataclass
-import json
 import logging
 import multiprocessing as mp
 import os
@@ -9,221 +8,203 @@ from queue import Full
 from typing import Dict, Set
 
 from datasets import concatenate_datasets, load_dataset
-from transformers import GPT2TokenizerFast
 from tqdm import tqdm
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 GLOBAL_DATASET = None
-VOCAB_SIZE = 50_001
 
 
 @dataclass
 class Config:
-    vocab: pathlib.Path
-    merges: pathlib.Path
     feature: str
+    lang_feature: str
+    punctuation: Set[str]
+    orthographies: Dict[str, Set[str]]
 
 
-def counting_daemon(qin: mp.Queue, arr: mp.Array, avg: mp.Array, qout: mp.Queue, lang_feature: str, lang_codes: Dict[str, int], cfg: Config):
+def load_char_set(path: pathlib.Path) -> Set[str]:
+    with open(path, "r", encoding="utf-8") as fp:
+        return set(fp.read())
+
+
+def csv_escape_char(ch: str) -> str:
+    if ch == "\n":
+        ch = "\\n"
+    elif ch == "\t":
+        ch = "\\t"
+    elif ch == "\r":
+        ch = "\\r"
+    return ch.replace('"', '""')
+
+
+def counting_daemon(
+    qin: mp.Queue,
+    counts: Dict[str, Dict[str, int]],
+    qout: mp.Queue,
+    cfg: Config,
+):
     while True:
         slice = qin.get()
         if slice is None:
             break
+
         slice_start, slice_end = slice
         records = GLOBAL_DATASET[slice_start:slice_end]
-        langs = records[lang_feature]
-        for ri, row_text in enumerate(records[cfg.feature]):
-            lang = langs[ri]
-            lang_code = lang_codes[lang]
-            lang_offset = lang_code * VOCAB_SIZE
-            lang_avg, lang_char_avg, lang_count = avg[lang_code * 3], avg[lang_code * 3 + 1], avg[lang_code * 3 + 2]
-            avg[lang_code * 3] = (lang_avg * lang_count + len(row_tokens)) / (lang_count + 1)
-            avg[lang_code * 3 + 1] = (lang_char_avg * lang_count + len(records[cfg.feature][ri])) / (lang_count + 1)
-            avg[lang_code * 3 + 2] += 1
-            for token in row_tokens:
-                arr[lang_offset + token] += 1
+        texts = records[cfg.feature]
+        langs = records[cfg.lang_feature]
+
+        for text, lang in zip(texts, langs):
+            if lang not in cfg.orthographies:
+                continue
+
+            valid_chars = cfg.orthographies[lang] | cfg.punctuation
+            lang_counts = counts[lang]
+
+            for ch in text:
+                if ch in valid_chars:
+                    lang_counts[ch] = lang_counts.get(ch, 0) + 1
+
         qout.put(slice_end - slice_start)
 
 
 def log_inventories(
-        directory: pathlib.Path,
-        tokenizer: GPT2TokenizerFast, vocab: Dict[int, str],
-        supports: Dict[str, Dict[int, int]],
-        disjoint: Dict[str, Set[int]], shared: Set[int],
-        avgs: Dict[str, float], char_avgs: Dict[str, float],
+    directory: pathlib.Path,
+    supports: Dict[str, Dict[str, int]],
+    disjoint: Dict[str, Set[str]],
+    shared: Set[str],
 ):
-    logger.info(f'saving phonetic inventories to {directory}')
+    logger.info(f"saving character inventories to {directory}")
+    os.makedirs(directory, exist_ok=True)
 
+    # per-language inventories
     for lang in disjoint.keys():
-        lines = [
-            '"token","string","byte","support"'
-        ]
-        for token in disjoint[lang]:
-            ts = tokenizer.decode([token]).replace('\n', '\\n')
-            bs = 'N/A'
-            if ts == '�' or len(ts) == 1:
-                bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('latin-1'))
-            lines.append(f'{token},"{ts}","{bs}",{supports[lang][token]}')
-        with open(directory / f'{lang}.csv', 'w+') as fp:
-            fp.write('\n'.join(lines))
+        lines = ['"char","support"']
+        for ch in sorted(
+            disjoint[lang],
+            key=lambda c: supports[lang][c],
+            reverse=True,
+        ):
+            esc = csv_escape_char(ch)
+            lines.append(f'"{esc}",{supports[lang][ch]}')
 
-    shared_lines = [
-        '"token","string","byte","support",' + ','.join([f'{l}_support' for l in disjoint.keys()])
-    ]
-    for token in shared:
-        ts = tokenizer.decode([token]).replace('\n', '\\n').replace('"', '""')
-        bs = 'N/A'
-        if ts == '�' or len(ts) == 1:
-            bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('latin-1'))
-        token_supports = [supports[lang][token] for lang in disjoint.keys()]
-        shared_lines.append(f'{token},"{ts}","{bs}",{sum(token_supports)},' + ','.join(map(str, token_supports)))
-    with open(directory / 'shared.csv', 'w+') as fp:
-        fp.write('\n'.join(shared_lines))
+        with open(directory / f"{lang}.csv", "w", encoding="utf-8") as fp:
+            fp.write("\n".join(lines))
 
-    with open(directory / 'metrics.json', 'w+') as fp:
-        metrics = {}
-        for lang in disjoint.keys():
-            metrics[lang] = {
-                'average_token_length': avgs[lang],
-                'average_character_length': char_avgs[lang],
-                'count': len(disjoint[lang]),
-            }
-        metrics['shared'] = {
-            'count': len(shared)
-        }
-        json.dump(metrics, fp, indent=4)
+    # shared inventory
+    header = '"char","support",' + ",".join(f"{l}_support" for l in disjoint.keys())
+    shared_lines = [header]
+
+    for ch in sorted(
+        shared,
+        key=lambda c: sum(supports[l][c] for l in disjoint.keys()),
+        reverse=True,
+    ):
+        esc = csv_escape_char(ch)
+        per_lang = [supports[l][ch] for l in disjoint.keys()]
+        shared_lines.append(
+            f'"{esc}",{sum(per_lang)},' + ",".join(map(str, per_lang))
+        )
+
+    with open(directory / "shared.csv", "w", encoding="utf-8") as fp:
+        fp.write("\n".join(shared_lines))
 
 
-if __name__ == '__main__':
-    ap = argparse.ArgumentParser(description='analyzes the bpe tokenizer token inventories of the language in the dataset')
-    ap.add_argument('codes', type=pathlib.Path, help='indicates where the vocab and merges are stored')
-    ap.add_argument('name', type=str, help='indicates the prefix to the vocab and merge files')
-    ap.add_argument('--feature', type=str, default='text', help='the feature column name to apply')
-    ap.add_argument('--lang-feature', type=str, default='language', help='the feature column name to extract the language names from')
-    ap.add_argument('--cpus', type=int, default=os.cpu_count(), help='the number of cores to use')
-    ap.add_argument('--cache', type=pathlib.Path, default=pathlib.Path('./cache/huggingface'),
-                        help='the location of the cache folder for huggingface')
-    ap.add_argument('--dataset', type=str, default='openwebtext', help='the dataset to use')
-    ap.add_argument('--batch-size', type=int, default=2000, help='the batch size of the tokenizing')
-    ap.add_argument('--result-directory', type=pathlib.Path, default=pathlib.Path('data/token-analysis'), help='the directory to save the analysis results to')
-    args = ap.parse_args()
-
-    procs = []
-
-    vocab_fname = args.codes / "{}-vocab.json".format(args.name)
-    merges_fname = args.codes / "{}-merges.txt".format(args.name)
-
-    logger.info(f'reading data from {str(vocab_fname)} and {str(merges_fname)}')
-
-    logger.info('loading vocab indices...')
-    with open(vocab_fname, 'rb') as fp:
-        bdata = fp.read().decode('latin-1')
-        vocab_data = json.loads(bdata)
-    vocab_indices = {v: k for k, v in vocab_data.items()}
-    tokenizer = GPT2TokenizerFast(
-        str(vocab_fname), str(merges_fname),
-        add_prefix_space=True
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(
+        description="Character-level inventory analysis"
     )
 
-    logger.info('loading dataset...')
+    ap.add_argument("--dataset", type=str, required=True)
+    ap.add_argument("--feature", type=str, default="text")
+    ap.add_argument("--lang-feature", type=str, default="language")
+    ap.add_argument("--cpus", type=int, default=os.cpu_count())
+    ap.add_argument("--cache", type=pathlib.Path, default=pathlib.Path("./cache/huggingface"))
+    ap.add_argument("--batch-size", type=int, default=2000)
+    ap.add_argument("--result-directory", type=pathlib.Path, required=True)
+
+    ap.add_argument(
+        "--punctuation-file",
+        type=pathlib.Path,
+        required=True,
+    )
+    ap.add_argument(
+        "--orthography",
+        action="append",
+        required=True,
+        help="language=path/to/orthography.txt",
+    )
+
+    args = ap.parse_args()
+
+    punctuation = load_char_set(args.punctuation_file)
+
+    orthographies = {}
+    for spec in args.orthography:
+        lang, path = spec.split("=", 1)
+        orthographies[lang] = load_char_set(pathlib.Path(path))
+
+    logger.info("loading dataset...")
     dataset = load_dataset(args.dataset, cache_dir=args.cache, num_proc=args.cpus)
-    GLOBAL_DATASET = concatenate_datasets([dataset[split] for split in dataset])
+    GLOBAL_DATASET = concatenate_datasets([dataset[s] for s in dataset])
 
-    language_codes = {v: k for k, v in enumerate(GLOBAL_DATASET.unique(args.lang_feature))}
+    languages = set(orthographies.keys())
+    counts = {lang: {} for lang in languages}
 
-    logger.info('setting up output...')
-    output_array = mp.Array('i', VOCAB_SIZE * len(language_codes))
-    output_averages = mp.Array('d', len(language_codes) * 3)
-    qout = mp.Queue()
-
-    logger.info('generating processors...')
-    processing_config = Config(vocab_fname, merges_fname, args.feature)
+    cfg = Config(
+        feature=args.feature,
+        lang_feature=args.lang_feature,
+        punctuation=punctuation,
+        orthographies=orthographies,
+    )
 
     queues = [mp.Queue() for _ in range(args.cpus)]
+    qout = mp.Queue()
     procs = []
-    for pi in range(args.cpus):
-        proc = mp.Process(target=counting_daemon, args=(queues[pi], output_array, output_averages, qout, args.lang_feature, language_codes, processing_config))
-        proc.start()
-        procs.append(proc)
+
+    for i in range(args.cpus):
+        p = mp.Process(
+            target=counting_daemon,
+            args=(queues[i], counts, qout, cfg),
+        )
+        p.start()
+        procs.append(p)
 
     qi = 0
     total_batches = 0
-    for idx in tqdm(range(0, len(GLOBAL_DATASET), args.batch_size), desc='queueing up batches'):
-        batch_end = min(idx + args.batch_size, len(GLOBAL_DATASET))
+    for idx in tqdm(range(0, len(GLOBAL_DATASET), args.batch_size), desc="queueing batches"):
+        end = min(idx + args.batch_size, len(GLOBAL_DATASET))
         total_batches += 1
         while True:
             try:
-                queues[qi].put_nowait((idx, batch_end))
+                queues[qi].put_nowait((idx, end))
                 qi = (qi + 1) % len(queues)
                 break
-            except Full as e:
+            except Full:
                 qi = (qi + 1) % len(queues)
 
-    logger.info('finished feeding data, waiting for results...')
-    for _ in tqdm(range(total_batches), desc='processing batches'):
+    for _ in tqdm(range(total_batches), desc="processing batches"):
         qout.get()
+
     for q in queues:
         q.put(None)
-    pbar = tqdm(total=len(procs), desc='waiting for daemons to finish...')
     for p in procs:
         p.join()
 
-    logger.info('analyzing data...')
-
     shared_inventory = None
-    unfiltered_inventories = {}
-    disjoint_inventories = {}
-    for lang in language_codes.keys():
-        lang_offset = language_codes[lang] * VOCAB_SIZE
-        unfiltered_inventories[lang] = {t: s for t, s in enumerate(output_array[lang_offset:lang_offset + VOCAB_SIZE]) if s > 0}
-        if shared_inventory is None:
-            shared_inventory = set(unfiltered_inventories[lang].keys())
-        else:
-            shared_inventory &= set(unfiltered_inventories[lang].keys())
-    for lang in language_codes.keys():
-        disjoint_inventories[lang] = set(unfiltered_inventories[lang].keys()) - shared_inventory
+    for lang in languages:
+        inv = set(counts[lang].keys())
+        shared_inventory = inv if shared_inventory is None else shared_inventory & inv
 
-    print('token inventories:')
-    for lang in language_codes.keys():
-        print(f'{lang}: Top 10 Tokens\n   \tToken\tCount')
-        tokens = sorted(list(disjoint_inventories[lang]), key=lambda x: unfiltered_inventories[lang][x], reverse=True)
-        print('token inventory count:', len(tokens))
-        for ti, tok in enumerate(tokens[:10]):
-            print(f'{ti + 1:02d}. & {tok} & "\ipa{{{tokenizer.decode([tok])}}}" & {unfiltered_inventories[lang][tok]:,d} \\\\')
-
-    print('shared inventory')
-    print(f'size of shared inventory: {len(shared_inventory)}')
-    language_names = list(language_codes.keys())
-    print('Top 10 Tokens\n   \tToken\tCount\t' + '\t'.join(language_names))
-    tokens = sorted(
-        list(shared_inventory),
-        key=lambda x: sum([unfiltered_inventories[lang][x] for lang in language_names]),
-        reverse=True
-    )
-    for ti, tok in enumerate(tokens[:10]):
-        token_supports = [unfiltered_inventories[lang][tok] for lang in language_names]
-        print(f'{ti + 1:02d}. & {tok} & "\ipa{{{tokenizer.decode([tok])}}}" & {sum(token_supports):,d} & ' + ' & '.join([f'{s:,d}' for s in token_supports]) + ' \\\\')
-
-
-    lang_averages = {
-        lang: output_averages[language_codes[lang] * 3]
-        for lang in language_codes.keys()
+    disjoint = {
+        lang: set(counts[lang].keys()) - shared_inventory
+        for lang in languages
     }
 
-    lang_char_averages = {
-        lang: output_averages[language_codes[lang] * 3 + 1]
-        for lang in language_codes.keys()
-    }
-
-    os.makedirs(args.result_directory, exist_ok=True)
     log_inventories(
         args.result_directory,
-        tokenizer, vocab_indices,
-        unfiltered_inventories,
-        disjoint_inventories, shared_inventory,
-        lang_averages, lang_char_averages,
+        counts,
+        disjoint,
+        shared_inventory,
     )
