@@ -78,15 +78,15 @@ def log_inventories(
             fp.write('\n'.join(lines))
 
     shared_lines = [
-        '"token","string","byte","support"'
+        '"token","string","byte","support",' + ','.join([f'{l}_support' for l in disjoint.keys()])
     ]
     for token in shared:
-        ts = tokenizer.decode([token]).replace('\n', '\\n')
+        ts = tokenizer.decode([token]).replace('\n', '\\n').replace('"', '""')
         bs = 'N/A'
         if ts == '�' or len(ts) == 1:
             bs = ' '.join(f'x{byte:02x}' for byte in vocab[token].encode('latin-1'))
-        support = sum(supports[lang][token] for lang in disjoint.keys())
-        shared_lines.append(f'{token},"{ts}","{bs}",{support}')
+        supports = [supports[lang][token] for lang in disjoint.keys()]
+        shared_lines.append(f'{token},"{ts}","{bs}",{sum(supports)},' + ','.join(map(str, supports)))
     with open(directory / 'shared.csv', 'w+') as fp:
         fp.write('\n'.join(shared_lines))
 
