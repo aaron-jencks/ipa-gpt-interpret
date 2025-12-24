@@ -6,6 +6,7 @@ import os
 import pathlib
 from queue import Full
 from typing import Dict, Set
+from collections import Counter, defaultdict
 
 from datasets import concatenate_datasets, load_dataset
 from tqdm import tqdm
@@ -16,6 +17,10 @@ logger = logging.getLogger(__name__)
 GLOBAL_DATASET = None
 
 
+# ─────────────────────────────────────────────────────────────
+# Config
+# ─────────────────────────────────────────────────────────────
+
 @dataclass
 class Config:
     feature: str
@@ -24,12 +29,18 @@ class Config:
     orthographies: Dict[str, Set[str]]
 
 
+# ─────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────
+
 def load_char_set(path: pathlib.Path) -> Set[str]:
+    # raw character stream — every character counts
     with open(path, "r", encoding="utf-8") as fp:
         return set(fp.read())
 
 
 def csv_escape_char(ch: str) -> str:
+    # make control chars visible + escape quotes for pandas
     if ch == "\n":
         ch = "\\n"
     elif ch == "\t":
@@ -39,12 +50,18 @@ def csv_escape_char(ch: str) -> str:
     return ch.replace('"', '""')
 
 
+# ─────────────────────────────────────────────────────────────
+# Worker
+# ─────────────────────────────────────────────────────────────
+
 def counting_daemon(
     qin: mp.Queue,
-    counts: Dict[str, Dict[str, int]],
     qout: mp.Queue,
     cfg: Config,
 ):
+    # local accumulation ONLY
+    local_counts = defaultdict(Counter)
+
     while True:
         slice = qin.get()
         if slice is None:
@@ -60,25 +77,30 @@ def counting_daemon(
                 continue
 
             valid_chars = cfg.orthographies[lang] | cfg.punctuation
-            lang_counts = counts[lang]
+            ctr = local_counts[lang]
 
             for ch in text:
                 if ch in valid_chars:
-                    lang_counts[ch] = lang_counts.get(ch, 0) + 1
+                    ctr[ch] += 1
 
-        qout.put(slice_end - slice_start)
+    # send back ONCE
+    qout.put(dict(local_counts))
 
+
+# ─────────────────────────────────────────────────────────────
+# Output
+# ─────────────────────────────────────────────────────────────
 
 def log_inventories(
     directory: pathlib.Path,
-    supports: Dict[str, Dict[str, int]],
+    supports: Dict[str, Counter],
     disjoint: Dict[str, Set[str]],
     shared: Set[str],
 ):
     logger.info(f"saving character inventories to {directory}")
     os.makedirs(directory, exist_ok=True)
 
-    # per-language inventories
+    # per-language disjoint inventories
     for lang in disjoint.keys():
         lines = ['"char","support"']
         for ch in sorted(
@@ -111,9 +133,13 @@ def log_inventories(
         fp.write("\n".join(shared_lines))
 
 
+# ─────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(
-        description="Character-level inventory analysis"
+        description="Character-level inventory analysis (correct multiprocessing)"
     )
 
     ap.add_argument("--dataset", type=str, required=True)
@@ -124,11 +150,7 @@ if __name__ == "__main__":
     ap.add_argument("--batch-size", type=int, default=2000)
     ap.add_argument("--result-directory", type=pathlib.Path, required=True)
 
-    ap.add_argument(
-        "--punctuation-file",
-        type=pathlib.Path,
-        required=True,
-    )
+    ap.add_argument("--punctuation-file", type=pathlib.Path, required=True)
     ap.add_argument(
         "--orthography",
         action="append",
@@ -143,68 +165,4 @@ if __name__ == "__main__":
     orthographies = {}
     for spec in args.orthography:
         lang, path = spec.split("=", 1)
-        orthographies[lang] = load_char_set(pathlib.Path(path))
-
-    logger.info("loading dataset...")
-    dataset = load_dataset(args.dataset, cache_dir=args.cache, num_proc=args.cpus)
-    GLOBAL_DATASET = concatenate_datasets([dataset[s] for s in dataset])
-
-    languages = set(orthographies.keys())
-    counts = {lang: {} for lang in languages}
-
-    cfg = Config(
-        feature=args.feature,
-        lang_feature=args.lang_feature,
-        punctuation=punctuation,
-        orthographies=orthographies,
-    )
-
-    queues = [mp.Queue() for _ in range(args.cpus)]
-    qout = mp.Queue()
-    procs = []
-
-    for i in range(args.cpus):
-        p = mp.Process(
-            target=counting_daemon,
-            args=(queues[i], counts, qout, cfg),
-        )
-        p.start()
-        procs.append(p)
-
-    qi = 0
-    total_batches = 0
-    for idx in tqdm(range(0, len(GLOBAL_DATASET), args.batch_size), desc="queueing batches"):
-        end = min(idx + args.batch_size, len(GLOBAL_DATASET))
-        total_batches += 1
-        while True:
-            try:
-                queues[qi].put_nowait((idx, end))
-                qi = (qi + 1) % len(queues)
-                break
-            except Full:
-                qi = (qi + 1) % len(queues)
-
-    for _ in tqdm(range(total_batches), desc="processing batches"):
-        qout.get()
-
-    for q in queues:
-        q.put(None)
-    for p in procs:
-        p.join()
-
-    shared_inventory = None
-    for lang in languages:
-        inv = set(counts[lang].keys())
-        shared_inventory = inv if shared_inventory is None else shared_inventory & inv
-
-    disjoint = {
-        lang: set(counts[lang].keys()) - shared_inventory
-        for lang in languages
-    }
-
-    log_inventories(
-        args.result_directory,
-        counts,
-        disjoint,
-        shared_inventory,
-    )
+        orthographies[lang] = load_char_set(pathlib.Path
