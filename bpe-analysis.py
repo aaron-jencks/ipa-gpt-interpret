@@ -203,14 +203,16 @@ if __name__ == '__main__':
 
     print('shared inventory')
     print(f'size of shared inventory: {len(shared_inventory)}')
-    print('Top 10 Tokens\n   \tToken\tCount')
+    language_names = list(language_codes.keys())
+    print('Top 10 Tokens\n   \tToken\tCount\t' + '\t'.join(language_names))
     tokens = sorted(
         list(shared_inventory),
-        key=lambda x: sum([unfiltered_inventories[lang][x] for lang in language_codes.keys()]),
+        key=lambda x: sum([unfiltered_inventories[lang][x] for lang in language_names]),
         reverse=True
     )
     for ti, tok in enumerate(tokens[:10]):
-        print(f'{ti + 1:02d}. & {tok} & "\ipa{{{tokenizer.decode([tok])}}}" &  {sum([unfiltered_inventories[lang][tok] for lang in language_codes.keys()]):,d} \\\\')
+        token_supports = [unfiltered_inventories[lang][tok] for lang in language_names]
+        print(f'{ti + 1:02d}. & {tok} & "\ipa{{{tokenizer.decode([tok])}}}" & {sum(token_supports):,d} & ' + ' & '.join([f'{s:,d}' for s in token_supports]) + ' \\\\')
 
 
     lang_averages = {
