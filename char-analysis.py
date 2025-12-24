@@ -165,4 +165,75 @@ if __name__ == "__main__":
     orthographies = {}
     for spec in args.orthography:
         lang, path = spec.split("=", 1)
-        orthographies[lang] = load_char_set(pathlib.Path
+        orthographies[lang] = load_char_set(pathlib.Path(path))
+
+    logger.info("loading dataset...")
+    dataset = load_dataset(args.dataset, cache_dir=args.cache, num_proc=args.cpus)
+    GLOBAL_DATASET = concatenate_datasets([dataset[s] for s in dataset])
+
+    languages = set(orthographies.keys())
+
+    cfg = Config(
+        feature=args.feature,
+        lang_feature=args.lang_feature,
+        punctuation=punctuation,
+        orthographies=orthographies,
+    )
+
+    queues = [mp.Queue() for _ in range(args.cpus)]
+    qout = mp.Queue()
+    procs = []
+
+    # spawn workers
+    for i in range(args.cpus):
+        p = mp.Process(
+            target=counting_daemon,
+            args=(queues[i], qout, cfg),
+        )
+        p.start()
+        procs.append(p)
+
+    # feed work
+    qi = 0
+    for idx in tqdm(range(0, len(GLOBAL_DATASET), args.batch_size), desc="queueing batches"):
+        end = min(idx + args.batch_size, len(GLOBAL_DATASET))
+        while True:
+            try:
+                queues[qi].put_nowait((idx, end))
+                qi = (qi + 1) % len(queues)
+                break
+            except Full:
+                qi = (qi + 1) % len(queues)
+
+    # stop workers
+    for q in queues:
+        q.put(None)
+
+    # merge results
+    counts = {lang: Counter() for lang in languages}
+
+    for _ in range(len(procs)):
+        worker_counts = qout.get()
+        for lang, ctr in worker_counts.items():
+            counts[lang].update(ctr)
+
+    for p in procs:
+        p.join()
+
+    # inventory analysis
+    shared_inventory = None
+    for lang in languages:
+        inv = set(counts[lang].keys())
+        shared_inventory = inv if shared_inventory is None else shared_inventory & inv
+
+    disjoint = {
+        lang: set(counts[lang].keys()) - shared_inventory
+        for lang in languages
+    }
+
+    log_inventories(
+        args.result_directory,
+        counts,
+        disjoint,
+        shared_inventory,
+    )
