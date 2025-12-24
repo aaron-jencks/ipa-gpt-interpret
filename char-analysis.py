@@ -56,18 +56,19 @@ def csv_escape_char(ch: str) -> str:
 
 def counting_daemon(
     qin: mp.Queue,
+    qdone: mp.Queue,
     qout: mp.Queue,
     cfg: Config,
 ):
-    # local accumulation ONLY
+    # local accumulation ONLY (fast)
     local_counts = defaultdict(Counter)
 
     while True:
-        slice = qin.get()
-        if slice is None:
+        sl = qin.get()
+        if sl is None:
             break
 
-        slice_start, slice_end = slice
+        slice_start, slice_end = sl
         records = GLOBAL_DATASET[slice_start:slice_end]
         texts = records[cfg.feature]
         langs = records[cfg.lang_feature]
@@ -83,7 +84,10 @@ def counting_daemon(
                 if ch in valid_chars:
                     ctr[ch] += 1
 
-    # send back ONCE
+        # signal "one batch finished"
+        qdone.put(1)
+
+    # send final local counts back ONCE
     qout.put(dict(local_counts))
 
 
@@ -139,7 +143,7 @@ def log_inventories(
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(
-        description="Character-level inventory analysis (correct multiprocessing)"
+        description="Character-level inventory analysis (correct multiprocessing + progress)"
     )
 
     ap.add_argument("--dataset", type=str, required=True)
@@ -181,22 +185,25 @@ if __name__ == "__main__":
     )
 
     queues = [mp.Queue() for _ in range(args.cpus)]
-    qout = mp.Queue()
+    qdone = mp.Queue()  # per-batch completion signals
+    qout = mp.Queue()   # final per-worker counters
     procs = []
 
     # spawn workers
     for i in range(args.cpus):
         p = mp.Process(
             target=counting_daemon,
-            args=(queues[i], qout, cfg),
+            args=(queues[i], qdone, qout, cfg),
         )
         p.start()
         procs.append(p)
 
-    # feed work
+    # feed work + count batches
+    total_batches = 0
     qi = 0
     for idx in tqdm(range(0, len(GLOBAL_DATASET), args.batch_size), desc="queueing batches"):
         end = min(idx + args.batch_size, len(GLOBAL_DATASET))
+        total_batches += 1
         while True:
             try:
                 queues[qi].put_nowait((idx, end))
@@ -209,9 +216,12 @@ if __name__ == "__main__":
     for q in queues:
         q.put(None)
 
-    # merge results
-    counts = {lang: Counter() for lang in languages}
+    # progress: wait for every batch to be completed
+    for _ in tqdm(range(total_batches), desc="processing batches"):
+        qdone.get()
 
+    # merge results from workers (exactly one message per worker)
+    counts = {lang: Counter() for lang in languages}
     for _ in range(len(procs)):
         worker_counts = qout.get()
         for lang, ctr in worker_counts.items():
@@ -224,7 +234,7 @@ if __name__ == "__main__":
     shared_inventory = None
     for lang in languages:
         inv = set(counts[lang].keys())
-        shared_inventory = inv if shared_inventory is None else shared_inventory & inv
+        shared_inventory = inv if shared_inventory is None else (shared_inventory & inv)
 
     disjoint = {
         lang: set(counts[lang].keys()) - shared_inventory
